@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>拍照助手 PhotoWing</title>
+<link rel="manifest" href="data:application/json,{}">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-apple-system,system-ui,sans-serif;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#app{position:relative;width:100%;height:100vh;height:100dvh}
+#video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+#letterbox{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2;transition:all .5s}
+#letterbox .bar{position:absolute;left:0;width:100%;background:#000;transition:height .5s}
+#letterbox .bar.top{top:0}
+#letterbox .bar.bottom{bottom:0}
+#hud{position:absolute;top:0;left:0;right:0;z-index:10;padding:env(safe-area-inset-top,12px) 16px 8px;background:linear-gradient(#0008,#0000)}
+#hud-row{display:flex;justify-content:space-between;align-items:center}
+#scene-badge{font-size:11px;color:#fff9;background:#fff2;padding:2px 8px;border-radius:8px}
+#score{font-size:38px;font-weight:900;color:#ffd700;font-variant-numeric:tabular-nums}
+#hint-banner{position:absolute;top:100px;left:50%;transform:translateX(-50%);z-index:11;font-size:14px;font-weight:600;color:#000;background:#ffd700;padding:6px 18px;border-radius:20px;text-align:center;max-width:90%;opacity:0;transition:opacity .3s}
+#hint-banner.show{opacity:1}
+#bottom{position:absolute;bottom:0;left:0;right:0;z-index:10;padding:8px 16px calc(env(safe-area-inset-bottom,16px)+12px);background:linear-gradient(#0000,#000a)}
+#scores{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+#scores .chip{font-size:11px;padding:2px 8px;border-radius:10px;color:#fff}
+#scores .chip.good{background:#2e73}
+#scores .chip.warn{background:#e6a81733;color:#e6a817}
+#scores .chip.bad{background:#e6321733;color:#e63217}
+#prompt{font-size:14px;color:#fff;text-align:center;margin-bottom:6px;font-weight:500}
+#btns{display:flex;gap:10px;justify-content:center;align-items:center;margin-top:4px}
+#btns button{background:#fff2;border:none;color:#fff;padding:8px 14px;border-radius:20px;font-size:12px;cursor:pointer;white-space:nowrap}
+#btns button:active{background:#fff4}
+#btns button.active{background:#ffd700;color:#000;font-weight:600}
+#shutter{width:60px;height:60px;border-radius:50%;border:3px solid #fff;background:#fff3;cursor:pointer;position:relative;flex-shrink:0}
+#shutter::after{content:'';position:absolute;inset:6px;border-radius:50%;background:#fff;transition:transform .15s}
+#shutter.ready{border-color:#2e7;box-shadow:0 0 20px #2e7}
+#shutter.ready::after{background:#2e7}
+#aesthetic-bar{position:absolute;bottom:170px;left:50%;transform:translateX(-50%);z-index:10;display:flex;gap:6px;overflow-x:auto;padding:4px 8px;max-width:100%;scrollbar-width:none}
+#aesthetic-bar::-webkit-scrollbar{display:none}
+#aesthetic-bar button{background:#fff3;border:none;color:#fff;padding:6px 14px;border-radius:16px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0}
+#aesthetic-bar button:active,#aesthetic-bar button.on{background:#ffd700;color:#000;font-weight:600}
+#mic-btn{position:absolute;top:calc(env(safe-area-inset-top,12px)+4px);right:60px;z-index:11;width:32px;height:32px;border-radius:50%;background:#fff2;border:none;color:#fff;font-size:16px;cursor:pointer}
+#mic-btn.listening{background:#e63217;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 #e6321780}50%{box-shadow:0 0 0 10px #e6321700}}
+.grade{position:absolute;top:120px;right:16px;z-index:10;font-size:13px;color:#fff9;text-align:right;line-height:1.5}
+.grade span{display:block}
+@media(orientation:landscape){#aesthetic-bar{bottom:100px}#bottom{padding-bottom:8px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
+  <div id="letterbox"><div class="bar top"></div><div class="bar bottom"></div></div>
+  <div id="hud"><div id="hud-row"><span id="scene-badge">📷 启动中...</span><span id="score">--</span></div></div>
+  <div id="hint-banner"></div>
+  <button id="mic-btn" title="语音指令">🎤</button>
+  <div class="grade"><span id="g-comp">构图 --</span><span id="g-exp">曝光 --</span><span id="g-pose">姿态 --</span></div>
+  <div id="aesthetic-bar">
+    <button data-aes="longerLegs">🦵腿长</button>
+    <button data-aes="smallerFace">👤脸小</button>
+    <button data-aes="cinematic">🎬电影</button>
+    <button data-aes="warmPortrait">☀️暖调</button>
+    <button data-aes="hongKongVibe">🇭🇰港风</button>
+    <button data-aes="japaneseFresh">🌸日系</button>
+    <button data-aes="coolFashion">❄️冷调</button>
+  </div>
+  <div id="bottom">
+    <div id="scores"></div>
+    <div id="prompt">对准人物开始拍摄</div>
+    <div id="btns">
+      <button id="btn-mode">🤖全自动</button>
+      <button id="shutter"></button>
+      <button id="btn-pose">姿势参考</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== PhotoWing Web Core ====================
+const $=s=>document.querySelector(s);
+const $$=s=>document.querySelectorAll(s);
+
+// --- State ---
+const state={
+  running:false, pose:null, fps:0, lastFrame:0, frameCount:0,
+  compScore:0, expScore:0, poseScore:0, focusScore:0,
+  scene:'urbanDefault', sceneHint:'', activeAesthetic:null,
+  cinematic:false, letterbox:0, poseMode:false,
+  mode:'fullAuto', listening:false, recognition:null
+};
+
+// --- Camera ---
+async function startCamera(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},
+      audio:false
+    });
+    const video=$('#video');video.srcObject=stream;
+    await video.play();
+    const cap=new ImageCapture(stream.getVideoTracks()[0]);
+    state.capture=cap;state.stream=stream;
+    state.running=true;
+    $('#scene-badge').textContent='📷 已启动';
+    requestAnimationFrame(loop);
+  }catch(e){
+    $('#scene-badge').textContent='❌ 相机权限未授权';
+    console.error(e);
+  }
+}
+
+// --- MediaPipe Pose ---
+async function loadPose(){
+  const{Pose}=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/+esm');
+  const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
+  state.poseDetector=await Pose.createFromOptions(vision,{
+    baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',delegate:'GPU'},
+    runningMode:'VIDEO',numPoses:1
+  });
+}
+
+// --- Scene Analysis ---
+function analyzeScene(video,pose){
+  const canvas=document.createElement('canvas');
+  canvas.width=160;canvas.height=120;
+  const ctx=canvas.getContext('2d');
+  ctx.drawImage(video,0,0,160,120);
+  const data=ctx.getImageData(0,0,160,120).data;
+  let totalLum=0,totalR=0,totalG=0,totalB=0,skinPx=0,n=0;
+  const lums=[];
+  for(let i=0;i<data.length;i+=32){
+    const r=data[i],g=data[i+1],b=data[i+2];
+    const lum=0.299*r+0.587*g+0.114*b;
+    totalLum+=lum;totalR+=r;totalG+=g;totalB+=b;
+    lums.push(lum);
+    if(r>95&&g>40&&b>20&&Math.max(r,g,b)-Math.min(r,g,b)>15&&Math.abs(r-g)>15&&r>g&&r>b)skinPx++;
+    n++;
+  }
+  lums.sort((a,b)=>a-b);
+  const avgLum=totalLum/n/255;
+  const p10=lums[Math.floor(n*0.1)]/255;
+  const p90=lums[Math.floor(n*0.9)]/255;
+  const dynRange=p90-p10;
+  const avgR=totalR/n,avgG=totalG/n,avgB=totalB/n;
+  const ct=3000+(3-Math.min(2.5,Math.max(0.5,(avgR/Math.max(1,avgB)))))*1500;
+  const skinRatio=skinPx/n;
+  const greenDom=avgG/Math.max(1,(avgR+avgB)/2);
+
+  // Scene classification (simplified vs iOS continuous vector)
+  let scene='urbanDefault',hint='';
+  if(avgLum<0.2){scene='lowLight';hint='暗光·保持稳定'}
+  else if(avgLum>0.75&&dynRange>0.6){scene='beachSnow';hint='高亮·适当降曝光'}
+  else if(ct<4000&&avgLum<0.5){scene='indoorWarm';hint='室内暖光'}
+  else if(ct<4500&&avgLum>0.35){scene='goldenHour';hint='黄金光线'}
+  else if(greenDom>1.3){scene='greenOutdoor';hint='户外·注意穿头'}
+  else if(avgLum>0.55){scene='brightDaylight';hint='明亮日光'}
+  if(skinRatio>0&&avgLum/skinRatio>3){scene='backlight';hint='逆光·开闪光灯'}
+
+  return{scene,avgLum,dynRange,ct,skinRatio,greenDom,hint};
+}
+
+// --- Composition Engine ---
+function evalComposition(pose,vw,vh){
+  if(!pose||!pose.keypoints)return{score:0,hint:'未检测到人体',arrow:''};
+  const kp={};
+  const map={0:'nose',5:'lShoulder',6:'rShoulder',7:'lElbow',8:'rElbow',
+    9:'lWrist',10:'rWrist',11:'lHip',12:'rHip',13:'lKnee',14:'rKnee',
+    15:'lAnkle',16:'rAnkle'};
+  pose.keypoints.forEach((k,i)=>{if(map[i])kp[map[i]]={x:k.x/vw,y:k.y/vh,score:k.score}});
+  if(!kp.nose||kp.nose.score<0.3)return{score:0,hint:'请对准人物',arrow:''};
+
+  const nose=kp.nose;
+  let hipX=0.5,hipY=0.55;
+  if(kp.lHip&&kp.rHip){hipX=(kp.lHip.x+kp.rHip.x)/2;hipY=(kp.lHip.y+kp.rHip.y)/2}
+
+  let score=100;
+  const targetX=state.activeAesthetic==='longerLegs'?0.4:0.333;
+  const xErr=Math.abs(hipX-targetX);
+  let arrow='';
+  if(xErr>0.12){score-=xErr*80;arrow=hipX<targetX?'➡️':'⬅️'}
+  else if(xErr>0.06){score-=xErr*30;arrow=hipX<targetX?'➡️':'⬅️'}
+
+  if(nose.y<0.15){score-=20;arrow=arrow||'⬇️'}
+  else if(nose.y>0.40){score-=15;arrow=arrow||'⬆️'}
+
+  // Body ratio
+  let bodyBot=nose.y;
+  if(kp.lAnkle)bodyBot=Math.max(bodyBot,kp.lAnkle.y);
+  if(kp.rAnkle)bodyBot=Math.max(bodyBot,kp.rAnkle.y);
+  const bodyRatio=bodyBot-nose.y;
+  if(bodyRatio<0.4){score-=30;arrow=arrow||'⬆️'}
+  else if(bodyRatio>0.8){score-=20;arrow=arrow||'⬇️'}
+
+  const hint=score>=85?'✅ 构图完美':score>=70?'👍 不错':arrow?'跟着箭头调整':'调整构图';
+  return{score:Math.max(0,Math.min(100,Math.round(score))),hint,arrow};
+}
+
+// --- Exposure Engine ---
+function evalExposure(scene,pose){
+  if(!pose)return{score:40,hint:'对准人物'};
+  const tgt=state.activeAesthetic==='cinematic'?{lo:0.42,hi:0.58}:{lo:0.45,hi:0.68};
+  let s=100;
+  const lum=scene.avgLum;
+  if(lum<tgt.lo){s-=(tgt.lo-lum)*200}
+  else if(lum>tgt.hi){s-=(lum-tgt.hi)*150}
+  if(scene.scene==='backlight'&&lum<0.35){s-=25}
+  const hint=s>=80?'✅':s>=50?'微调曝光':lum<0.3?'🌑太暗':lum>0.8?'☀️太亮':'';
+  return{score:Math.max(0,Math.min(100,Math.round(s))),hint};
+}
+
+// --- Pose Quality (simplified) ---
+function evalPose(pose){
+  if(!pose||!pose.keypoints)return{score:0,hint:''};
+  const kp={};
+  [5,6,7,8,9,10,11,12,13,14,15,16].forEach((i,j)=>{
+    const names=['lShoulder','rShoulder','lElbow','rElbow','lWrist','rWrist',
+      'lHip','rHip','lKnee','rKnee','lAnkle','rAnkle'];
+    if(pose.keypoints[i]?.score>0.3)kp[names[j]]=pose.keypoints[i];
+  });
+  let symmetry=0.5,openness=0.5,n=0;
+  const pairs=[['lShoulder','rShoulder'],['lWrist','rWrist'],['lKnee','rKnee']];
+  pairs.forEach(([l,r])=>{
+    if(kp[l]&&kp[r]){symmetry+=1-Math.abs(kp[l].x-kp[r].x);n++}
+  });
+  symmetry=n?symmetry/n:0.5;
+  if(kp.lWrist&&kp.rWrist&&kp.lShoulder&&kp.rShoulder){
+    const arm=Math.hypot(kp.lWrist.x-kp.rWrist.x,kp.lWrist.y-kp.rWrist.y);
+    const sh=Math.hypot(kp.lShoulder.x-kp.rShoulder.x,kp.lShoulder.y-kp.rShoulder.y);
+    openness=Math.min(1,arm/Math.max(0.01,sh*2.5));
+  }
+  const score=Math.round((symmetry*0.5+openness*0.3+0.2)*100);
+  return{score:Math.min(100,score),hint:score>70?'✨姿态好':score>40?'可调整':''};
+}
+
+// --- Aesthetic Presets ---
+const AESTHETICS={
+  longerLegs:{lens:'wide',angle:'low',bodyRatio:[0.55,0.85],footBottom:0.02,ev:+0.1,tip:'蹲下·仰拍·脚贴底'},
+  smallerFace:{lens:'tele',angle:'slightDown',bodyRatio:[0.38,0.55],ev:0,tip:'退后·长焦·微俯·收下巴'},
+  cinematic:{lens:'tele',angle:'level',bodyRatio:[0.35,0.55],ev:-0.2,tip:'横拍·浅景深·低饱和·不看镜头',letterbox:0.15,colorGrade:'tealOrange'},
+  warmPortrait:{lens:'tele',angle:'level',bodyRatio:[0.45,0.65],ev:+0.1,colorTemp:800,tip:'暖光·虚化·眼神光'},
+  hongKongVibe:{lens:'wide',angle:'level',bodyRatio:[0.40,0.60],ev:-0.3,colorTemp:500,sat:0.75,tip:'霓虹光·侧光·褪色·不笑'},
+  japaneseFresh:{lens:'wide',angle:'level',bodyRatio:[0.35,0.55],ev:+0.5,colorTemp:300,contrast:0.8,tip:'过曝·低对比·自然光·微笑'},
+  coolFashion:{lens:'tele',angle:'slightDown',bodyRatio:[0.50,0.70],ev:0,colorTemp:-600,sat:0.8,tip:'冷调·低饱和·冷淡表情'}
+};
+
+function applyAesthetic(key){
+  state.activeAesthetic=state.activeAesthetic===key?null:key;
+  $$('#aesthetic-bar button').forEach(b=>b.classList.toggle('on',b.dataset.aes===state.activeAesthetic));
+  if(!state.activeAesthetic){
+    state.cinematic=false;state.letterbox=0;
+    showHint('已恢复默认模式');
+    return;
+  }
+  const a=AESTHETICS[key];
+  if(a.letterbox){state.cinematic=true;state.letterbox=a.letterbox}
+  else{state.cinematic=false;state.letterbox=0}
+  showHint(`🎬 ${a.tip}`);
+}
+
+// --- Letterbox ---
+let currentLetterbox=0;
+function updateLetterbox(h){
+  if(Math.abs(currentLetterbox-h)<0.001)return;
+  currentLetterbox=h;
+  const barH=Math.round(h*$('#app').clientHeight);
+  $$('#letterbox .bar').forEach(b=>{b.style.height=barH+'px'});
+}
+
+// --- Canvas Overlay ---
+function drawOverlay(video,pose,scene,comp,exp,poseQ){
+  const canvas=$('#overlay');
+  const vw=$('#video').videoWidth||1920;
+  const vh=$('#video').videoHeight||1080;
+  canvas.width=$('#app').clientWidth;
+  canvas.height=$('#app').clientHeight;
+  const ctx=canvas.getContext('2d');
+  const w=canvas.width,h=canvas.height;
+  ctx.clearRect(0,0,w,h);
+
+  // Rule of thirds grid
+  ctx.strokeStyle='#fff3';ctx.lineWidth=1;
+  for(const x of[w/3,w*2/3]){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+  for(const y of[h/3,h*2/3]){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+  // Cross dots
+  ctx.fillStyle='#fff8';
+  for(const x of[w/3,w*2/3])for(const y of[h/3,h*2/3]){
+    ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill()}
+
+  // Target zone
+  const tx=state.activeAesthetic==='longerLegs'?w*0.4:w/3;
+  ctx.fillStyle='#2e73';ctx.beginPath();ctx.arc(tx,h*0.52,20,0,Math.PI*2);ctx.fill();
+
+  // Pose skeleton
+  if(pose&&pose.keypoints){
+    const kp=pose.keypoints.map(k=>({x:k.x/vw*w,y:k.y/vh*h,s:k.score}));
+    ctx.strokeStyle='#2e7';ctx.lineWidth=2;
+    const bones=[[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16],[0,5]];
+    bones.forEach(([a,b])=>{
+      if(kp[a]?.s>0.3&&kp[b]?.s>0.3){
+        ctx.beginPath();ctx.moveTo(kp[a].x,kp[a].y);ctx.lineTo(kp[b].x,kp[b].y);ctx.stroke()
+      }
+    });
+    kp.forEach(k=>{
+      if(k.s>0.3){ctx.fillStyle='#2e7';ctx.beginPath();ctx.arc(k.x,k.y,4,0,Math.PI*2);ctx.fill()}
+    });
+  }
+
+  // Direction arrow
+  if(comp.arrow){
+    ctx.font='48px sans-serif';ctx.textAlign='center';
+    ctx.fillStyle='#ffd700';ctx.fillText(comp.arrow,w/2,h/2-80);
+  }
+
+  // Color grade overlay
+  if(state.cinematic){
+    ctx.fillStyle='rgba(0,140,180,0.06)';ctx.fillRect(0,0,w,h);
+  }
+}
+
+// --- UI Updates ---
+function updateUI(comp,exp,poseQ,scene){
+  $('#score').textContent=Math.round((comp.score+exp.score+poseQ.score)/3);
+  $('#g-comp').textContent=`构图 ${comp.score}`;
+  $('#g-exp').textContent=`曝光 ${exp.score}`;
+  $('#g-pose').textContent=`姿态 ${poseQ.score}`;
+  $('#scene-badge').textContent=scene.hint||scene.scene;
+  $('#prompt').textContent=comp.hint||'对准人物';
+  $('#shutter').classList.toggle('ready',comp.score>=70&&exp.score>=60);
+
+  const scores=[{l:'构图',s:comp.score},{l:'曝光',s:exp.score},{l:'姿态',s:poseQ.score}];
+  $('#scores').innerHTML=scores.map(s=>{
+    const cls=s.s>=70?'good':s.s>=40?'warn':'bad';
+    return `<span class="chip ${cls}">${s.l} ${s.s}</span>`;
+  }).join('');
+}
+
+function showHint(msg){
+  const el=$('#hint-banner');el.textContent=msg;el.classList.add('show');
+  clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),3000);
+}
+
+// --- Voice ---
+function toggleVoice(){
+  if(state.listening){stopVoice();return}
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SpeechRecognition){showHint('浏览器不支持语音');return}
+  const rec=new SpeechRecognition();rec.lang='zh-CN';rec.continuous=true;rec.interimResults=true;
+  rec.onresult=e=>{
+    const text=Array.from(e.results).map(r=>r[0].transcript).join('');
+    matchVoice(text);
+  };
+  rec.onerror=()=>stopVoice();
+  rec.start();
+  state.recognition=rec;state.listening=true;
+  $('#mic-btn').classList.add('listening');
+}
+
+function stopVoice(){
+  if(state.recognition){state.recognition.stop();state.recognition=null}
+  state.listening=false;$('#mic-btn').classList.remove('listening');
+}
+
+function matchVoice(text){
+  const map={
+    '腿':(text.includes('长')||text.includes('拉')||text.includes('显高'))?'longerLegs':null,
+    '脸':(text.includes('小')||text.includes('瘦'))?'smallerFace':null,
+    '电影':'cinematic','大片':'cinematic','质感':'cinematic',
+    '暖':'warmPortrait','港':'hongKongVibe','日系':'japaneseFresh','清新':'japaneseFresh',
+    '冷':'coolFashion'
+  };
+  for(const[k,v]of Object.entries(map)){
+    if(text.includes(k)){const r=typeof v==='function'?v():v;if(r){applyAesthetic(r);return}}
+  }
+}
+
+// --- Mode ---
+function toggleMode(){
+  const modes=['fullAuto','semiAuto','manual'];
+  const idx=modes.indexOf(state.mode);
+  state.mode=modes[(idx+1)%3];
+  const labels={fullAuto:'🤖全自动',semiAuto:'🎯半自动',manual:'👋手动'};
+  $('#btn-mode').textContent=labels[state.mode];
+  showHint(state.mode==='fullAuto'?'全自动：曝光对焦全部自动':state.mode==='semiAuto'?'半自动：自动优化，你控构图':'手动：全部自己调');
+}
+
+// --- Photo ---
+function takePhoto(){
+  if(!state.capture)return;
+  state.capture.takePhoto().then(blob=>{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=`photowing_${Date.now()}.jpg`;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showHint('📸 照片已保存');
+    navigator.vibrate?.(50);
+  }).catch(()=>showHint('拍照失败'));
+}
+
+// --- Main Loop ---
+let lastPoseTime=0;
+async function loop(ts){
+  if(!state.running)return;
+  if(ts-state.lastFrame>1000){state.fps=state.frameCount;state.frameCount=0;state.lastFrame=ts}
+  state.frameCount++;
+
+  const video=$('#video');
+  const vw=video.videoWidth||1920,vh=video.videoHeight||1080;
+  if(!vw)return requestAnimationFrame(loop);
+
+  // Pose detection (throttled ~10fps for perf)
+  let pose=state.pose;
+  if(state.poseDetector&&ts-lastPoseTime>100){
+    try{
+      const result=state.poseDetector.detectForVideo(video,ts);
+      pose=result.landmarks?{keypoints:result.landmarks[0]||[]}:null;
+      state.pose=pose;
+      lastPoseTime=ts;
+    }catch(e){}
+  }
+
+  // Scene
+  const scene=analyzeScene(video,pose);
+
+  // Guidance
+  const comp=evalComposition(pose,vw,vh);
+  const exp=evalExposure(scene,pose);
+  const poseQ=evalPose(pose);
+
+  // Draw
+  drawOverlay(video,pose,scene,comp,exp,poseQ);
+  updateLetterbox(state.letterbox||0);
+  updateUI(comp,exp,poseQ,scene);
+
+  requestAnimationFrame(loop);
+}
+
+// --- Init ---
+async function init(){
+  try{await loadPose()}catch(e){console.warn('MediaPipe load failed, using basic mode',e)}
+  startCamera();
+  $('#shutter').addEventListener('click',takePhoto);
+  $('#btn-mode').addEventListener('click',toggleMode);
+  $('#btn-pose').addEventListener('click',()=>showHint('网页版暂不支持姿势参考叠加'));
+  $('#mic-btn').addEventListener('click',toggleVoice);
+  $$('#aesthetic-bar button').forEach(b=>b.addEventListener('click',()=>applyAesthetic(b.dataset.aes)));
+}
+init();
+</script>
+</body>
+</html>
