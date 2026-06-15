@@ -12,10 +12,11 @@
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-apple-system,system-ui,sans-serif;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 #app{position:relative;width:100%;height:100vh;height:100dvh}
-#video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-#overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-#letterbox{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2;transition:all .5s}
-#letterbox .bar{position:absolute;left:0;width:100%;background:#000;transition:height .5s}
+#video-wrap{position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden}
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:center center}
+#overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1}
+#letterbox{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2;transition:all .6s}
+#letterbox .bar{position:absolute;left:0;width:100%;background:#000;transition:height .6s}
 #letterbox .bar.top{top:0}
 #letterbox .bar.bottom{bottom:0}
 #hud{position:absolute;top:0;left:0;right:0;z-index:10;padding:env(safe-area-inset-top,12px) 16px 8px;background:linear-gradient(#0008,#0000)}
@@ -39,26 +40,39 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-ap
 #shutter::after{content:'';position:absolute;inset:6px;border-radius:50%;background:#fff;transition:transform .15s}
 #shutter.ready{border-color:#2e7;box-shadow:0 0 20px #2e7}
 #shutter.ready::after{background:#2e7}
-#aesthetic-bar{position:absolute;bottom:170px;left:50%;transform:translateX(-50%);z-index:10;display:flex;gap:6px;overflow-x:auto;padding:4px 8px;max-width:100%;scrollbar-width:none}
+#aesthetic-bar{position:absolute;left:8px;top:50%;transform:translateY(-50%);z-index:10;display:flex;flex-direction:column;gap:4px;max-height:70vh;overflow-y:auto;scrollbar-width:none}
 #aesthetic-bar::-webkit-scrollbar{display:none}
-#aesthetic-bar button{background:#fff3;border:none;color:#fff;padding:6px 14px;border-radius:16px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0}
+#aesthetic-bar button{background:#fff2;border:none;color:#fff;padding:8px 12px;border-radius:14px;font-size:12px;cursor:pointer;white-space:nowrap;text-align:left;width:80px}
 #aesthetic-bar button:active,#aesthetic-bar button.on{background:#ffd700;color:#000;font-weight:600}
+#zoom-bar{position:absolute;right:16px;top:50%;transform:translateY(-50%);z-index:10;display:flex;flex-direction:column;align-items:center;gap:4px}
+#zoom-bar button{width:36px;height:36px;border-radius:50%;background:#fff3;border:none;color:#fff;font-size:18px;cursor:pointer}
+#zoom-bar button:active{background:#fff6}
+#zoom-label{font-size:10px;color:#fff9;writing-mode:vertical-lr}
+#shot-type{position:absolute;top:90px;left:16px;z-index:10;font-size:10px;color:#ffd700;background:#0006;padding:2px 6px;border-radius:6px}
 #mic-btn{position:absolute;top:calc(env(safe-area-inset-top,12px)+4px);right:60px;z-index:11;width:32px;height:32px;border-radius:50%;background:#fff2;border:none;color:#fff;font-size:16px;cursor:pointer}
 #mic-btn.listening{background:#e63217;animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 #e6321780}50%{box-shadow:0 0 0 10px #e6321700}}
 .grade{position:absolute;top:120px;right:16px;z-index:10;font-size:13px;color:#fff9;text-align:right;line-height:1.5}
 .grade span{display:block}
+#vignette{position:absolute;inset:0;pointer-events:none;z-index:3;transition:box-shadow .6s}
 @media(orientation:landscape){#aesthetic-bar{bottom:100px}#bottom{padding-bottom:8px}}
 </style>
 </head>
 <body>
 <div id="app">
-  <video id="video" autoplay playsinline muted></video>
+  <div id="video-wrap"><video id="video" autoplay playsinline muted></video></div>
   <canvas id="overlay"></canvas>
+  <div id="vignette"></div>
   <div id="letterbox"><div class="bar top"></div><div class="bar bottom"></div></div>
   <div id="hud"><div id="hud-row"><span id="scene-badge">📷 启动中...</span><span id="score">--</span></div></div>
   <div id="hint-banner"></div>
   <button id="mic-btn" title="语音指令">🎤</button>
+  <div id="zoom-bar">
+    <button id="zoom-in">+</button>
+    <span id="zoom-label">1.0x</span>
+    <button id="zoom-out">−</button>
+  </div>
+  <div id="shot-type"></div>
   <div class="grade"><span id="g-comp">构图 --</span><span id="g-exp">曝光 --</span><span id="g-pose">姿态 --</span></div>
   <div id="aesthetic-bar">
     <button data-aes="longerLegs">🦵腿长</button>
@@ -68,6 +82,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-ap
     <button data-aes="hongKongVibe">🇭🇰港风</button>
     <button data-aes="japaneseFresh">🌸日系</button>
     <button data-aes="coolFashion">❄️冷调</button>
+    <button data-aes="landscape">🏔️风景</button>
   </div>
   <div id="bottom">
     <div id="scores"></div>
@@ -81,373 +96,887 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:-ap
 </div>
 
 <script>
-// ==================== PhotoWing Web Core ====================
+// ==================== PhotoWing v2 — Pulitzer-Inspired Continuous Adaptive Engine ====================
 const $=s=>document.querySelector(s);
 const $$=s=>document.querySelectorAll(s);
 
+// --- Math Utils (普利策风格: 所有过渡使用连续函数, 零硬编码阈值) ---
+const M = {
+  clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); },
+  lerp(a, b, t) { return a + (b - a) * t; },
+  smoothstep(edge0, edge1, x) {
+    const t = M.clamp((x - edge0) / (edge1 - edge0 || 0.001), 0, 1);
+    return t * t * (3 - 2 * t);
+  },
+  sigmoid(x) { return 1 / (1 + Math.exp(-x)); },
+  tanh(x) { return Math.tanh(x); },
+  // EMA: exponential moving average for temporal smoothing
+  ema(prev, curr, alpha) { return prev * (1 - alpha) + curr * alpha; },
+  // Normalize to [0,1]
+  norm(v, lo, hi) { return M.clamp((v - lo) / (hi - lo || 0.001), 0, 1); },
+  // log2 helper
+  log2(x) { return Math.log2(Math.max(0.001, x)); }
+};
+
 // --- State ---
-const state={
-  running:false, pose:null, fps:0, lastFrame:0, frameCount:0,
-  compScore:0, expScore:0, poseScore:0, focusScore:0,
-  scene:'urbanDefault', sceneHint:'', activeAesthetic:null,
-  cinematic:false, letterbox:0, poseMode:false,
-  mode:'fullAuto', listening:false, recognition:null
+const state = {
+  running: false, pose: null, fps: 0, lastFrame: 0, frameCount: 0,
+  mode: 'fullAuto', poseMode: false, listening: false, recognition: null,
+  zoom: 1.0, shotType: 'environ',
+  activeAesthetic: null,
+  // Continuous feature vector (EMA smoothed — no discrete buckets!)
+  features: {
+    avgLuminance: 0.5, dynamicRange: 0.3, colorTemp: 5500,
+    saturation: 0.5, skinRatio: 0, greenDominance: 0,
+    backlightStrength: 0, motionActivity: 0, edgeComplexity: 0,
+    negativeSpaceLeft: 0, negativeSpaceRight: 0
+  },
+  // Smoothed output params (frame-to-frame continuity)
+  params: {
+    subjectX: 0.4, subjectY: 0.5,
+    compScore: 0, expScore: 0, poseScore: 0,
+    exposureBias: 0, contrastBoost: 0, satShift: 0, tempShift: 0,
+    vignetteStrength: 0, letterboxRatio: 0
+  },
+  _smoothAlpha: 0.15  // 平滑系数: 越小越平滑但越慢
 };
 
 // --- Camera ---
-async function startCamera(){
-  try{
-    const stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}},
-      audio:false
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
     });
-    const video=$('#video');video.srcObject=stream;
+    const video = $('#video'); video.srcObject = stream;
     await video.play();
-    const cap=new ImageCapture(stream.getVideoTracks()[0]);
-    state.capture=cap;state.stream=stream;
-    state.running=true;
-    $('#scene-badge').textContent='📷 已启动';
+    state.capture = new ImageCapture(stream.getVideoTracks()[0]);
+    state.stream = stream;
+    state.running = true;
+    $('#scene-badge').textContent = '📷 已启动';
     requestAnimationFrame(loop);
-  }catch(e){
-    $('#scene-badge').textContent='❌ 相机权限未授权';
+  } catch (e) {
+    $('#scene-badge').textContent = '❌ 相机权限未授权';
     console.error(e);
   }
 }
 
 // --- MediaPipe Pose ---
-async function loadPose(){
-  const{Pose}=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/+esm');
-  const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm');
-  state.poseDetector=await Pose.createFromOptions(vision,{
-    baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',delegate:'GPU'},
-    runningMode:'VIDEO',numPoses:1
-  });
-}
-
-// --- Scene Analysis ---
-function analyzeScene(video,pose){
-  const canvas=document.createElement('canvas');
-  canvas.width=160;canvas.height=120;
-  const ctx=canvas.getContext('2d');
-  ctx.drawImage(video,0,0,160,120);
-  const data=ctx.getImageData(0,0,160,120).data;
-  let totalLum=0,totalR=0,totalG=0,totalB=0,skinPx=0,n=0;
-  const lums=[];
-  for(let i=0;i<data.length;i+=32){
-    const r=data[i],g=data[i+1],b=data[i+2];
-    const lum=0.299*r+0.587*g+0.114*b;
-    totalLum+=lum;totalR+=r;totalG+=g;totalB+=b;
-    lums.push(lum);
-    if(r>95&&g>40&&b>20&&Math.max(r,g,b)-Math.min(r,g,b)>15&&Math.abs(r-g)>15&&r>g&&r>b)skinPx++;
-    n++;
+let poseLoading = false, poseFailed = false;
+async function loadPose() {
+  if (poseLoading) return;
+  poseLoading = true;
+  $('#scene-badge').textContent = '🦴 加载追踪...';
+  const cdns = [
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest',
+    'https://unpkg.com/@mediapipe/tasks-vision@latest'
+  ];
+  for (const cdn of cdns) {
+    try {
+      const { Pose, FilesetResolver } = await import(`${cdn}/+esm`);
+      const vision = await FilesetResolver.forVisionTasks(`${cdn}/wasm`);
+      state.poseDetector = await Pose.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: `${cdn}/pose_landmarker_lite.task`, delegate: 'GPU' },
+        runningMode: 'VIDEO', numPoses: 1
+      });
+      $('#scene-badge').textContent = '🦴 追踪就绪';
+      setTimeout(() => { if (!poseFailed) $('#scene-badge').textContent = '📷 已启动'; }, 2000);
+      poseLoading = false; return;
+    } catch (e) { console.warn('CDN failed:', cdn, e.message.slice(0, 50)); }
   }
-  lums.sort((a,b)=>a-b);
-  const avgLum=totalLum/n/255;
-  const p10=lums[Math.floor(n*0.1)]/255;
-  const p90=lums[Math.floor(n*0.9)]/255;
-  const dynRange=p90-p10;
-  const avgR=totalR/n,avgG=totalG/n,avgB=totalB/n;
-  const ct=3000+(3-Math.min(2.5,Math.max(0.5,(avgR/Math.max(1,avgB)))))*1500;
-  const skinRatio=skinPx/n;
-  const greenDom=avgG/Math.max(1,(avgR+avgB)/2);
-
-  // Scene classification (simplified vs iOS continuous vector)
-  let scene='urbanDefault',hint='';
-  if(avgLum<0.2){scene='lowLight';hint='暗光·保持稳定'}
-  else if(avgLum>0.75&&dynRange>0.6){scene='beachSnow';hint='高亮·适当降曝光'}
-  else if(ct<4000&&avgLum<0.5){scene='indoorWarm';hint='室内暖光'}
-  else if(ct<4500&&avgLum>0.35){scene='goldenHour';hint='黄金光线'}
-  else if(greenDom>1.3){scene='greenOutdoor';hint='户外·注意穿头'}
-  else if(avgLum>0.55){scene='brightDaylight';hint='明亮日光'}
-  if(skinRatio>0&&avgLum/skinRatio>3){scene='backlight';hint='逆光·开闪光灯'}
-
-  return{scene,avgLum,dynRange,ct,skinRatio,greenDom,hint};
+  poseFailed = true;
+  $('#scene-badge').textContent = '⚠️ 追踪未加载-用基本检测';
+  poseLoading = false;
 }
 
-// --- Composition Engine ---
-function evalComposition(pose,vw,vh){
-  if(!pose||!pose.keypoints)return{score:0,hint:'未检测到人体',arrow:''};
-  const kp={};
-  const map={0:'nose',5:'lShoulder',6:'rShoulder',7:'lElbow',8:'rElbow',
-    9:'lWrist',10:'rWrist',11:'lHip',12:'rHip',13:'lKnee',14:'rKnee',
-    15:'lAnkle',16:'rAnkle'};
-  pose.keypoints.forEach((k,i)=>{if(map[i])kp[map[i]]={x:k.x/vw,y:k.y/vh,score:k.score}});
-  if(!kp.nose||kp.nose.score<0.3)return{score:0,hint:'请对准人物',arrow:''};
+// ==================== Scene Feature Extractor (连续特征向量, 零离散桶) ====================
+function extractFeatures(video, pose) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 160; canvas.height = 120;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, 160, 120);
+  const data = ctx.getImageData(0, 0, 160, 120).data;
 
-  const nose=kp.nose;
-  let hipX=0.5,hipY=0.55;
-  if(kp.lHip&&kp.rHip){hipX=(kp.lHip.x+kp.rHip.x)/2;hipY=(kp.lHip.y+kp.rHip.y)/2}
+  // --- Luminance histogram (for continuous features) ---
+  let totalLum = 0, totalR = 0, totalG = 0, totalB = 0, skinPx = 0, n = 0;
+  const lums = [];
+  // Left/right half luminance (for negative space / backlight)
+  let leftLum = 0, rightLum = 0, leftN = 0, rightN = 0;
+  // Edge detection accumulator
+  let edgeSum = 0;
 
-  let score=100;
-  const targetX=state.activeAesthetic==='longerLegs'?0.4:0.333;
-  const xErr=Math.abs(hipX-targetX);
-  let arrow='';
-  if(xErr>0.12){score-=xErr*80;arrow=hipX<targetX?'➡️':'⬅️'}
-  else if(xErr>0.06){score-=xErr*30;arrow=hipX<targetX?'➡️':'⬅️'}
-
-  if(nose.y<0.15){score-=20;arrow=arrow||'⬇️'}
-  else if(nose.y>0.40){score-=15;arrow=arrow||'⬆️'}
-
-  // Body ratio
-  let bodyBot=nose.y;
-  if(kp.lAnkle)bodyBot=Math.max(bodyBot,kp.lAnkle.y);
-  if(kp.rAnkle)bodyBot=Math.max(bodyBot,kp.rAnkle.y);
-  const bodyRatio=bodyBot-nose.y;
-  if(bodyRatio<0.4){score-=30;arrow=arrow||'⬆️'}
-  else if(bodyRatio>0.8){score-=20;arrow=arrow||'⬇️'}
-
-  const hint=score>=85?'✅ 构图完美':score>=70?'👍 不错':arrow?'跟着箭头调整':'调整构图';
-  return{score:Math.max(0,Math.min(100,Math.round(score))),hint,arrow};
-}
-
-// --- Exposure Engine ---
-function evalExposure(scene,pose){
-  if(!pose)return{score:40,hint:'对准人物'};
-  const tgt=state.activeAesthetic==='cinematic'?{lo:0.42,hi:0.58}:{lo:0.45,hi:0.68};
-  let s=100;
-  const lum=scene.avgLum;
-  if(lum<tgt.lo){s-=(tgt.lo-lum)*200}
-  else if(lum>tgt.hi){s-=(lum-tgt.hi)*150}
-  if(scene.scene==='backlight'&&lum<0.35){s-=25}
-  const hint=s>=80?'✅':s>=50?'微调曝光':lum<0.3?'🌑太暗':lum>0.8?'☀️太亮':'';
-  return{score:Math.max(0,Math.min(100,Math.round(s))),hint};
-}
-
-// --- Pose Quality (simplified) ---
-function evalPose(pose){
-  if(!pose||!pose.keypoints)return{score:0,hint:''};
-  const kp={};
-  [5,6,7,8,9,10,11,12,13,14,15,16].forEach((i,j)=>{
-    const names=['lShoulder','rShoulder','lElbow','rElbow','lWrist','rWrist',
-      'lHip','rHip','lKnee','rKnee','lAnkle','rAnkle'];
-    if(pose.keypoints[i]?.score>0.3)kp[names[j]]=pose.keypoints[i];
-  });
-  let symmetry=0.5,openness=0.5,n=0;
-  const pairs=[['lShoulder','rShoulder'],['lWrist','rWrist'],['lKnee','rKnee']];
-  pairs.forEach(([l,r])=>{
-    if(kp[l]&&kp[r]){symmetry+=1-Math.abs(kp[l].x-kp[r].x);n++}
-  });
-  symmetry=n?symmetry/n:0.5;
-  if(kp.lWrist&&kp.rWrist&&kp.lShoulder&&kp.rShoulder){
-    const arm=Math.hypot(kp.lWrist.x-kp.rWrist.x,kp.lWrist.y-kp.rWrist.y);
-    const sh=Math.hypot(kp.lShoulder.x-kp.rShoulder.x,kp.lShoulder.y-kp.rShoulder.y);
-    openness=Math.min(1,arm/Math.max(0.01,sh*2.5));
+  for (let y = 4; y < 116; y += 4) {
+    for (let x = 4; x < 156; x += 4) {
+      const i = (y * 160 + x) * 4;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      totalLum += lum; totalR += r; totalG += g; totalB += b;
+      lums.push(lum);
+      // Left/right split
+      if (x < 80) { leftLum += lum; leftN++; }
+      else { rightLum += lum; rightN++; }
+      // Skin detection (Asian tones, wider)
+      if (r > 80 && g > 30 && b > 15 && Math.max(r, g, b) - Math.min(r, g, b) > 10 &&
+          Math.abs(r - g) > 10 && r > g && r > b) skinPx++;
+      // Edge: simple gradient on green channel
+      const right = (y * 160 + (x + 4)) * 4 + 1;
+      const down = ((y + 4) * 160 + x) * 4 + 1;
+      if (right < data.length && down < data.length) {
+        edgeSum += Math.abs(data[i + 1] - data[right]) + Math.abs(data[i + 1] - data[down]);
+      }
+      n++;
+    }
   }
-  const score=Math.round((symmetry*0.5+openness*0.3+0.2)*100);
-  return{score:Math.min(100,score),hint:score>70?'✨姿态好':score>40?'可调整':''};
+
+  lums.sort((a, b) => a - b);
+  const avgLum = totalLum / n / 255;
+  const p05 = lums[Math.floor(n * 0.05)] / 255;
+  const p95 = lums[Math.floor(n * 0.95)] / 255;
+  const dynRange = p95 - p05;
+
+  // Color temperature estimate (McCamy's approximation simplified)
+  const avgR = totalR / n, avgG = totalG / n, avgB = totalB / n;
+  const rg = avgR / Math.max(1, avgG);
+  const ct = M.clamp(2000 + (1.5 - M.clamp(rg, 0.6, 1.8)) * 4000, 2000, 8000);
+
+  // Saturation approximation
+  const maxRGB = Math.max(avgR, avgG, avgB), minRGB = Math.min(avgR, avgG, avgB);
+  const sat = maxRGB > 0 ? (maxRGB - minRGB) / maxRGB : 0;
+
+  // Green dominance
+  const greenDom = avgG / Math.max(1, (avgR + avgB) / 2);
+
+  // Skin ratio
+  const skinRatio = skinPx / n;
+
+  // Backlight: bright overall but low skin luminance (or strong L/R luminance asymmetry)
+  const leftAvgL = leftN > 0 ? leftLum / leftN / 255 : 0.5;
+  const rightAvgR = rightN > 0 ? rightLum / rightN / 255 : 0.5;
+  const lrAsymmetry = Math.abs(leftAvgL - rightAvgR);
+  let backlightStr = 0;
+  if (skinRatio > 0.01) {
+    // Backlight: face dark relative to bright background
+    backlightStr = M.smoothstep(1.5, 4, avgLum / Math.max(0.01, skinRatio * 0.3 + 0.01));
+  }
+  // Also check strong left/right asymmetry (side lighting)
+  backlightStr = Math.max(backlightStr, M.smoothstep(0.15, 0.4, lrAsymmetry) * 0.6);
+
+  // Edge complexity (environmental detail indicator)
+  const edgeComplexity = M.clamp(edgeSum / (n * 30), 0, 1);
+
+  // Motion activity (from pose tracking)
+  let motionAct = 0;
+  if (pose && state._prevPose && state._prevPose.keypoints) {
+    let totalDisp = 0, validJoints = 0;
+    const prevKp = state._prevPose.keypoints;
+    for (let i = 0; i < Math.min(pose.keypoints.length, prevKp.length); i++) {
+      if (pose.keypoints[i].score > 0.3 && prevKp[i].score > 0.3) {
+        totalDisp += Math.hypot(pose.keypoints[i].x - prevKp[i].x, pose.keypoints[i].y - prevKp[i].y);
+        validJoints++;
+      }
+    }
+    if (validJoints > 2) motionAct = M.clamp(totalDisp / (validJoints * 150), 0, 1);
+  }
+  state._prevPose = pose ? { keypoints: pose.keypoints.map(k => ({ ...k })) } : null;
+
+  // Negative space estimation: smooth regions with low edge density
+  // Split frame into 3x3 grid, find emptiest region
+  const gridW = 160 / 3, gridH = 120 / 3;
+  let negSpaceL = 0, negSpaceR = 0;
+  for (let gy = 0; gy < 3; gy++) {
+    for (let gx = 0; gx < 3; gx++) {
+      let gridEdges = 0, gridN = 0;
+      for (let y = gy * gridH + 4; y < (gy + 1) * gridH - 4; y += 4) {
+        for (let x = gx * gridW + 4; x < (gx + 1) * gridW - 4; x += 4) {
+          const i = (y * 160 + x) * 4;
+          const dx = Math.abs(data[i] - data[i + 4]) + Math.abs(data[i + 1] - data[i + 5]) + Math.abs(data[i + 2] - data[i + 6]);
+          const dy = Math.abs(data[i] - data[i + 160 * 4]) + Math.abs(data[i + 1] - data[i + 160 * 4 + 1]) + Math.abs(data[i + 2] - data[i + 160 * 4 + 2]);
+          gridEdges += dx + dy; gridN++;
+        }
+      }
+      const emptiness = 1 - M.clamp(gridEdges / (gridN * 60), 0, 1); // low edges = empty/negative space
+      if (gx === 0) negSpaceL = Math.max(negSpaceL, emptiness);
+      if (gx === 2) negSpaceR = Math.max(negSpaceR, emptiness);
+    }
+  }
+
+  return {
+    avgLuminance: avgLum, dynamicRange: dynRange,
+    colorTemp: ct, saturation: sat,
+    skinRatio, greenDominance: greenDom,
+    backlightStrength: backlightStr,
+    motionActivity: motionAct,
+    edgeComplexity,
+    negativeSpaceLeft: negSpaceL,
+    negativeSpaceRight: negSpaceR
+  };
 }
 
-// --- Aesthetic Presets ---
-const AESTHETICS={
-  longerLegs:{lens:'wide',angle:'low',bodyRatio:[0.55,0.85],footBottom:0.02,ev:+0.1,tip:'蹲下·仰拍·脚贴底'},
-  smallerFace:{lens:'tele',angle:'slightDown',bodyRatio:[0.38,0.55],ev:0,tip:'退后·长焦·微俯·收下巴'},
-  cinematic:{lens:'tele',angle:'level',bodyRatio:[0.35,0.55],ev:-0.2,tip:'横拍·浅景深·低饱和·不看镜头',letterbox:0.15,colorGrade:'tealOrange'},
-  warmPortrait:{lens:'tele',angle:'level',bodyRatio:[0.45,0.65],ev:+0.1,colorTemp:800,tip:'暖光·虚化·眼神光'},
-  hongKongVibe:{lens:'wide',angle:'level',bodyRatio:[0.40,0.60],ev:-0.3,colorTemp:500,sat:0.75,tip:'霓虹光·侧光·褪色·不笑'},
-  japaneseFresh:{lens:'wide',angle:'level',bodyRatio:[0.35,0.55],ev:+0.5,colorTemp:300,contrast:0.8,tip:'过曝·低对比·自然光·微笑'},
-  coolFashion:{lens:'tele',angle:'slightDown',bodyRatio:[0.50,0.70],ev:0,colorTemp:-600,sat:0.8,tip:'冷调·低饱和·冷淡表情'}
+// ==================== Composition Engine (普利策风格: 视线驱动+负空间推力+运动偏移) ====================
+function evalComposition(pose, vw, vh, features, aestheticBias) {
+  if (!pose || !pose.keypoints) return { score: 0, hint: '未检测到人体', targetX: 0.4, targetY: 0.5, bodyRatio: 0 };
+
+  const kp = {};
+  const map = { 0: 'nose', 5: 'lShoulder', 6: 'rShoulder', 7: 'lElbow', 8: 'rElbow',
+    9: 'lWrist', 10: 'rWrist', 11: 'lHip', 12: 'rHip', 13: 'lKnee', 14: 'rKnee',
+    15: 'lAnkle', 16: 'rAnkle' };
+  pose.keypoints.forEach((k, i) => { if (map[i] && k.score > 0.3) kp[map[i]] = { x: k.x / vw, y: k.y / vh, s: k.score }; });
+  if (!kp.nose) return { score: 0, hint: '请对准人物', targetX: 0.4, targetY: 0.5, bodyRatio: 0 };
+
+  const nose = kp.nose;
+  let hipX = 0.5, hipY = 0.55;
+  if (kp.lHip && kp.rHip) { hipX = (kp.lHip.x + kp.rHip.x) / 2; hipY = (kp.lHip.y + kp.rHip.y) / 2; }
+  let ankleY = 0.8;
+  if (kp.lAnkle || kp.rAnkle) ankleY = Math.max(kp.lAnkle?.y || 0, kp.rAnkle?.y || 0);
+  const bodyRatio = Math.max(0.05, ankleY - nose.y);  // body height / frame height
+
+  // ===== 动态主体位置 (连续函数, 零硬编码) =====
+  // 1. Base: slightly off-center (普利策核心: 极少绝对居中)
+  let targetX = 0.40;
+  let targetY = 0.48;
+
+  // 2. Shot distance: continuous adjustment (不是离散 if/else)
+  //    bodyRatio越大(全身) → target越低且越偏三分法
+  //    bodyRatio越小(特写) → target越居中偏上
+  const shotDistanceFactor = M.smoothstep(0.15, 0.60, bodyRatio);
+  targetY = M.lerp(0.42, 0.52, shotDistanceFactor);  // close→upper, full→lower
+  targetX = M.lerp(0.44, 0.38, shotDistanceFactor);  // close→centered, full→left-third
+
+  // 3. Negative space推力 (普利策: 负空间是主动叙事元素)
+  //    右负空间大 → 主体推向左; 左负空间大 → 主体推向右
+  const negSpaceImbalance = (features.negativeSpaceRight || 0) - (features.negativeSpaceLeft || 0);
+  const negThrust = M.tanh(negSpaceImbalance * 3) * 0.08;
+  targetX -= negThrust;
+
+  // 4. 视线方向偏移 (普利策: 给视线留空间)
+  let gazeAngle = 0, gazeIntensity = 0;
+  if (kp.lEye && kp.rEye && kp.nose) {
+    const eyeMidX = (kp.lEye.x + kp.rEye.x) / 2;
+    gazeAngle = Math.atan2(nose.y - eyeMidX, nose.x - eyeMidX); // simplified
+    gazeIntensity = Math.abs(kp.lEye.x - kp.rEye.x) < 0.02 ? 0 : 0.5;
+  } else if (kp.lShoulder && kp.rShoulder) {
+    // Fallback: shoulder orientation hints at body facing direction
+    const shoulderDiff = kp.rShoulder.x - kp.lShoulder.x;
+    gazeIntensity = M.clamp(Math.abs(shoulderDiff) * 3, 0, 1);
+    gazeAngle = shoulderDiff > 0.02 ? 0 : Math.PI; // facing camera vs turned
+  }
+  targetX -= Math.cos(gazeAngle) * gazeIntensity * 0.06;
+
+  // 5. 运动方向偏移 (普利策: 动态主体前方留2-3倍于后方的空间)
+  if (features.motionActivity > 0.05 && state._prevHipX !== undefined) {
+    const hipDx = hipX - (state._prevHipX || hipX);
+    const motionSpeed = M.clamp(Math.abs(hipDx) * 50, 0, 1);
+    targetX -= hipDx * motionSpeed * 0.10; // move target opposite to motion direction
+  }
+  state._prevHipX = hipX;
+
+  // 6. 美学风格偏移 (subtle, 连续叠加)
+  if (aestheticBias) {
+    targetX += (aestheticBias.compX || 0);
+    targetY += (aestheticBias.compY || 0);
+  }
+
+  // 7. 逆光偏移: 如果背光严重, 把主体移到受光侧
+  if (features.backlightStrength > 0.3) {
+    if (features.negativeSpaceLeft > features.negativeSpaceRight) targetX += 0.04;
+    else targetX -= 0.04;
+  }
+
+  // Clamp
+  targetX = M.clamp(targetX, 0.18, 0.82);
+  targetY = M.clamp(targetY, 0.30, 0.65);
+
+  // ===== Scoring (连续误差函数) =====
+  let score = 100;
+  const xErr = Math.abs(hipX - targetX), yErr = Math.abs(hipY - targetY);
+
+  // Score = gaussian-like falloff (连续, 不硬切)
+  score -= (1 - Math.exp(-xErr * xErr * 120)) * 50;
+  score -= (1 - Math.exp(-yErr * yErr * 80)) * 30;
+
+  // Edge penalties (连续)
+  const noseMargin = M.clamp(nose.y - 0.08, 0, 1);
+  score -= noseMargin * 25; // nose too high
+
+  const ankleMargin = M.clamp(ankleY - 0.92, 0, 1);
+  score -= ankleMargin * 20; // feet cut off
+
+  // Generate arrow hint
+  let arrow = '';
+  if (xErr > 0.03) arrow = hipX < targetX ? '➡️ 右移' : '⬅️ 左移';
+  if (yErr > 0.03) arrow += hipY < targetY ? ' ↙️' : ' ↗️';
+
+  const hint = score >= 85 ? '✅ 构图完美' : score >= 70 ? '👍 微调即可' : arrow || '调整构图';
+  return {
+    score: Math.max(0, Math.min(100, Math.round(score))),
+    hint, arrow, targetX, targetY, bodyRatio
+  };
+}
+
+// ==================== Exposure Engine (普利策风格: 情绪驱动曝光偏移) ====================
+function evalExposure(features, aestheticBias) {
+  // Base: 18% gray = 0.5 luminance with 2.2 gamma
+  const midGray = Math.pow(0.18, 1 / 2.2); // ≈ 0.46
+  let score = 100;
+
+  // Distance from ideal mid-gray
+  const lumErr = Math.abs(features.avgLuminance - midGray);
+  score -= lumErr * 120;
+
+  // Backlight penalty (连续)
+  if (features.backlightStrength > 0.15) {
+    score -= features.backlightStrength * 30;
+  }
+
+  // Dynamic range bonus: scenes with good DR are more forgiving
+  const drBonus = M.smoothstep(0.2, 0.5, features.dynamicRange) * 10;
+  score += drBonus;
+
+  // ===== 情绪驱动曝光偏移 (普利策核心: "错误曝光"的意图) =====
+  let evBias = 0;
+
+  // 背光 → 轻微欠曝 (增加戏剧性, 类似Carter处理)
+  evBias -= M.tanh(features.backlightStrength * 2) * 0.7;
+
+  // 肖像(高皮肤比例) → 轻微过曝 (柔化, 类似Lanker的亲密风格)
+  evBias += M.smoothstep(0.02, 0.15, features.skinRatio) * 0.35;
+
+  // 高动态范围场景 → 轻微欠曝 (保护高光, 类似Ut在烟雾中的做法)
+  evBias -= M.smoothstep(0.5, 0.75, features.dynamicRange) * 0.4;
+
+  // 暗光 → 优先保持暗部氛围, 不过度提亮
+  const darkSceneFactor = M.smoothstep(0.1, 0.3, features.avgLuminance);
+  evBias += (1 - darkSceneFactor) * 0.5; // very dark → boost a bit but preserve mood
+
+  // 美学偏移
+  if (aestheticBias && aestheticBias.exposureBias) {
+    evBias += aestheticBias.exposureBias;
+  }
+
+  const hint = score >= 80 ? '✅' : score >= 50 ? '微调曝光' :
+    features.avgLuminance < 0.2 ? '🌑偏暗' : features.avgLuminance > 0.8 ? '☀️偏亮' : '';
+
+  return {
+    score: Math.max(0, Math.min(100, Math.round(score))),
+    hint,
+    exposureBias: M.clamp(evBias, -2, 1.5)
+  };
+}
+
+// ==================== Pose Quality (symmetry + openness) ====================
+function evalPose(pose) {
+  if (!pose || !pose.keypoints) return { score: 0, hint: '' };
+  const kp = {};
+  [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].forEach((i, j) => {
+    const names = ['lShoulder', 'rShoulder', 'lElbow', 'rElbow', 'lWrist', 'rWrist',
+      'lHip', 'rHip', 'lKnee', 'rKnee', 'lAnkle', 'rAnkle'];
+    if (pose.keypoints[i]?.score > 0.3) kp[names[j]] = pose.keypoints[i];
+  });
+  let symmetry = 0.5, openness = 0.5, n = 0;
+  const pairs = [['lShoulder', 'rShoulder'], ['lWrist', 'rWrist'], ['lKnee', 'rKnee']];
+  pairs.forEach(([l, r]) => {
+    if (kp[l] && kp[r]) { symmetry += 1 - Math.abs(kp[l].x - kp[r].x); n++; }
+  });
+  symmetry = n ? symmetry / n : 0.5;
+  if (kp.lWrist && kp.rWrist && kp.lShoulder && kp.rShoulder) {
+    const arm = Math.hypot(kp.lWrist.x - kp.rWrist.x, kp.lWrist.y - kp.rWrist.y);
+    const sh = Math.hypot(kp.lShoulder.x - kp.rShoulder.x, kp.lShoulder.y - kp.rShoulder.y);
+    openness = Math.min(1, arm / Math.max(0.01, sh * 2.5));
+  }
+  const score = Math.round((symmetry * 0.5 + openness * 0.3 + 0.2) * 100);
+  return { score: Math.min(100, score), hint: score > 70 ? '✨姿态好' : score > 40 ? '可调整' : '' };
+}
+
+// ==================== Shot Type Detector (continuous) ====================
+function detectShotType(pose) {
+  if (!pose || !pose.keypoints || pose.keypoints.length < 5) return { type: 'environ', ratio: 0 };
+  const kp = pose.keypoints.map(k => ({ y: k.y, s: k.score }));
+  const noseY = kp[0]?.y || 0;
+  const ankleYs = [kp[15]?.y, kp[16]?.y].filter(y => y > 0).filter((_, i) => kp[15 + i]?.s > 0.3);
+  const ankleY = ankleYs.length ? Math.max(...ankleYs) : 1;
+  const vh = $('#video').videoHeight || 1080;
+  const bodyH = (ankleY - noseY) / vh;
+  // Continuous mapping (不是离散 if/else)
+  let type, ratio;
+  if (bodyH > 0.65) { type = 'fullBody'; ratio = 1; }
+  else if (bodyH > 0.40) { type = 'halfBody'; ratio = M.norm(bodyH, 0.40, 0.65); }
+  else if (bodyH > 0.20) { type = 'bust'; ratio = M.norm(bodyH, 0.20, 0.40); }
+  else { type = 'face'; ratio = M.norm(bodyH, 0.05, 0.20); }
+  return { type, ratio };
+}
+
+// ==================== Aesthetic Parameter Maps (普利策风格: 参数增量, 非固定滤镜) ====================
+// 每个预设 = 一组连续参数偏置, 动态混合生成CSS滤镜
+const AESTHETIC_PARAMS = {
+  longerLegs: {
+    compX: +0.03, compY: -0.04, zoom: 1.0,
+    contrastBias: +0.05, satBias: +0.05, warmthBias: +200,
+    vignetteBias: 0.05, letterbox: 0,
+    exposureBias: +0.15,
+    tip: '蹲下仰拍·脚贴底边·低角度', badge: '🦵'
+  },
+  smallerFace: {
+    compX: +0.02, compY: -0.06, zoom: 2.0,
+    contrastBias: -0.05, satBias: 0, warmthBias: +100,
+    vignetteBias: 0.1, letterbox: 0,
+    exposureBias: +0.1,
+    tip: '退后·2x长焦·微俯拍·收下巴', badge: '👤'
+  },
+  landscape: {
+    compX: 0, compY: +0.04, zoom: 0.7,
+    contrastBias: +0.08, satBias: +0.18, warmthBias: +300,
+    vignetteBias: 0, letterbox: 0,
+    exposureBias: 0,
+    tip: '广角·高饱和·人小景大·放低机位', badge: '🏔️'
+  },
+  cinematic: {
+    compX: -0.03, compY: -0.02, zoom: 1.0,
+    contrastBias: +0.18, satBias: -0.2, warmthBias: +200,
+    vignetteBias: 0.35, letterbox: 0.12,
+    exposureBias: -0.25,
+    tip: '横拍·大光比·低饱和·不笑·不看镜头', badge: '🎬'
+  },
+  warmPortrait: {
+    compX: +0.02, compY: -0.03, zoom: 1.0,
+    contrastBias: -0.08, satBias: +0.08, warmthBias: +800,
+    vignetteBias: 0.15, letterbox: 0,
+    exposureBias: +0.2,
+    tip: '顺光·柔焦·眼神光·逆光发丝', badge: '☀️'
+  },
+  hongKongVibe: {
+    compX: 0, compY: -0.01, zoom: 1.0,
+    contrastBias: +0.22, satBias: -0.25, warmthBias: -100,
+    vignetteBias: 0.25, letterbox: 0.04,
+    exposureBias: -0.3,
+    tip: '霓虹侧光·褪色感·青橙调·不笑·不看镜头', badge: '🇭🇰'
+  },
+  japaneseFresh: {
+    compX: +0.01, compY: -0.02, zoom: 1.0,
+    contrastBias: -0.15, satBias: -0.08, warmthBias: +200,
+    vignetteBias: 0.05, letterbox: 0,
+    exposureBias: +0.5,
+    tip: '过曝·低对比·自然光·微笑·看向镜头', badge: '🌸'
+  },
+  coolFashion: {
+    compX: +0.01, compY: -0.02, zoom: 1.0,
+    contrastBias: +0.1, satBias: -0.2, warmthBias: -600,
+    vignetteBias: 0.2, letterbox: 0.02,
+    exposureBias: -0.1,
+    tip: '冷调·低饱和·cool表情·锐利', badge: '❄️'
+  }
 };
 
-function applyAesthetic(key){
-  state.activeAesthetic=state.activeAesthetic===key?null:key;
-  $$('#aesthetic-bar button').forEach(b=>b.classList.toggle('on',b.dataset.aes===state.activeAesthetic));
-  if(!state.activeAesthetic){
-    state.cinematic=false;state.letterbox=0;
+// ==================== Dynamic Filter Builder (从连续参数生成CSS filter) ====================
+function buildCSSFilter(aesParams, sceneFeatures) {
+  if (!aesParams) return 'none';
+
+  // 从参数增量计算最终值 (场景特征 × 美学偏置)
+  const contrast = M.clamp(1.0 + (aesParams.contrastBias || 0) + sceneFeatures.backlightStrength * 0.1, 0.5, 2.0);
+  const saturate = M.clamp(1.0 + (aesParams.satBias || 0) - sceneFeatures.backlightStrength * 0.2, 0.1, 2.5);
+  const brightness = M.clamp(1.0 + (aesParams.exposureBias || 0) * 0.15, 0.6, 1.5);
+  const sepia = M.clamp(aesParams.warmthBias > 300 ? (aesParams.warmthBias - 300) / 3000 : 0, 0, 0.5);
+  const hueRotate = M.clamp(aesParams.warmthBias || 0, -40, 40);
+
+  // 暗光场景自动提升亮度, 但保留氛围
+  const darkBoost = M.smoothstep(0.05, 0.25, sceneFeatures.avgLuminance) > 0.5 ? 0 : (1 - M.smoothstep(0.05, 0.25, sceneFeatures.avgLuminance)) * 0.3;
+
+  return `contrast(${contrast.toFixed(2)}) saturate(${saturate.toFixed(2)}) brightness(${(brightness + darkBoost).toFixed(2)}) sepia(${sepia.toFixed(2)}) hue-rotate(${hueRotate.toFixed(1)}deg)`;
+}
+
+// ==================== Vignette (动态暗角强度) ====================
+function updateVignette(strength, sceneFeatures) {
+  // 暗光场景自动减弱暗角 (已经有自然暗角)
+  const darkAttenuation = M.smoothstep(0.15, 0.4, sceneFeatures.avgLuminance);
+  const vignetteStr = strength * darkAttenuation;
+
+  // 连续暗角: 使用径向渐变box-shadow (GPU friendly)
+  const spread = Math.round(vignetteStr * 40); // 0-40% spread
+  if (spread > 0) {
+    $('#vignette').style.boxShadow = `inset 0 0 ${spread}px ${spread * 0.5}px rgba(0,0,0,${vignetteStr.toFixed(2)})`;
+  } else {
+    $('#vignette').style.boxShadow = 'none';
+  }
+}
+
+// --- Apply Aesthetic ---
+function applyAesthetic(key) {
+  state.activeAesthetic = state.activeAesthetic === key ? null : key;
+  $$('#aesthetic-bar button').forEach(b => b.classList.toggle('on', b.dataset.aes === state.activeAesthetic));
+  if (!state.activeAesthetic) {
+    $('#video').style.filter = 'none';
+    $('#video').style.transition = 'filter 0.6s ease';
+    setZoomTo(1.0);
+    state._aesParams = null;
+    state._letterboxOverride = 0;
     showHint('已恢复默认模式');
     return;
   }
-  const a=AESTHETICS[key];
-  if(a.letterbox){state.cinematic=true;state.letterbox=a.letterbox}
-  else{state.cinematic=false;state.letterbox=0}
-  showHint(`🎬 ${a.tip}`);
+  const p = AESTHETIC_PARAMS[key];
+  state._aesParams = p;
+  state._letterboxOverride = p.letterbox || 0;
+  if (p.zoom) setZoomTo(p.zoom);
+  showHint(`${p.badge} ${p.tip}`);
 }
 
 // --- Letterbox ---
-let currentLetterbox=0;
-function updateLetterbox(h){
-  if(Math.abs(currentLetterbox-h)<0.001)return;
-  currentLetterbox=h;
-  const barH=Math.round(h*$('#app').clientHeight);
-  $$('#letterbox .bar').forEach(b=>{b.style.height=barH+'px'});
+let currentLetterbox = 0;
+function updateLetterbox(h) {
+  if (Math.abs(currentLetterbox - h) < 0.001) return;
+  currentLetterbox = h;
+  const barH = Math.round(h * $('#app').clientHeight);
+  $$('#letterbox .bar').forEach(b => { b.style.height = barH + 'px'; });
 }
 
-// --- Canvas Overlay ---
-function drawOverlay(video,pose,scene,comp,exp,poseQ){
-  const canvas=$('#overlay');
-  const vw=$('#video').videoWidth||1920;
-  const vh=$('#video').videoHeight||1080;
-  canvas.width=$('#app').clientWidth;
-  canvas.height=$('#app').clientHeight;
-  const ctx=canvas.getContext('2d');
-  const w=canvas.width,h=canvas.height;
-  ctx.clearRect(0,0,w,h);
+// ==================== Canvas Overlay (动态目标区) ====================
+function drawOverlay(video, pose, comp, sceneFeatures) {
+  const canvas = $('#overlay');
+  const vw = video.videoWidth || 1920;
+  const vh = video.videoHeight || 1080;
+  canvas.width = $('#app').clientWidth;
+  canvas.height = $('#app').clientHeight;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
 
-  // Rule of thirds grid
-  ctx.strokeStyle='#fff3';ctx.lineWidth=1;
-  for(const x of[w/3,w*2/3]){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
-  for(const y of[h/3,h*2/3]){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
-  // Cross dots
-  ctx.fillStyle='#fff8';
-  for(const x of[w/3,w*2/3])for(const y of[h/3,h*2/3]){
-    ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill()}
+  // Dynamic rule-of-thirds: opacity fades as negative space decreases (普利策: 不需要明显格子线)
+  const gridOpacity = M.smoothstep(0.15, 0.45, sceneFeatures.negativeSpaceLeft + sceneFeatures.negativeSpaceRight);
+  ctx.strokeStyle = `rgba(255,255,255,${(gridOpacity * 0.15 + 0.05).toFixed(2)})`;
+  ctx.lineWidth = 1;
+  for (const x of [w / 3, w * 2 / 3]) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  for (const y of [h / 3, h * 2 / 3]) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
 
-  // Target zone
-  const tx=state.activeAesthetic==='longerLegs'?w*0.4:w/3;
-  ctx.fillStyle='#2e73';ctx.beginPath();ctx.arc(tx,h*0.52,20,0,Math.PI*2);ctx.fill();
+  // Weak cross dots at intersections
+  ctx.fillStyle = `rgba(255,255,255,${(gridOpacity * 0.3).toFixed(2)})`;
+  for (const x of [w / 3, w * 2 / 3]) for (const y of [h / 3, h * 2 / 3]) {
+    ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+  }
 
-  // Pose skeleton
-  if(pose&&pose.keypoints){
-    const kp=pose.keypoints.map(k=>({x:k.x/vw*w,y:k.y/vh*h,s:k.score}));
-    ctx.strokeStyle='#2e7';ctx.lineWidth=2;
-    const bones=[[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16],[0,5]];
-    bones.forEach(([a,b])=>{
-      if(kp[a]?.s>0.3&&kp[b]?.s>0.3){
-        ctx.beginPath();ctx.moveTo(kp[a].x,kp[a].y);ctx.lineTo(kp[b].x,kp[b].y);ctx.stroke()
+  // Target zone (动态位置)
+  const tx = (comp.targetX || 0.4) * w;
+  const ty = (comp.targetY || 0.5) * h;
+
+  // Outer ring: larger when body is bigger
+  const ringSize = M.lerp(12, 20, M.smoothstep(0.2, 0.55, comp.bodyRatio || 0));
+  ctx.fillStyle = 'rgba(46, 231, 0, 0.25)';
+  ctx.beginPath(); ctx.arc(tx, ty, ringSize, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(46, 231, 0, 0.5)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(tx, ty, ringSize + 3, 0, Math.PI * 2); ctx.stroke();
+
+  // Label
+  ctx.font = '10px system-ui'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  const labelMap = ['特写', '胸像', '半身', '全身', '环境'];
+  const shotIdx = M.clamp(Math.floor(state.shotTypeRatio * 4) || 0, 0, 4);
+  const label = `站这里 (${labelMap[shotIdx] || ''})`;
+  ctx.fillText(label, tx, ty - ringSize - 8);
+
+  // --- Pose reference ghost ---
+  if (state.poseMode) {
+    const refCx = tx, refCy = ty;
+    const scale = h * M.lerp(0.25, 0.35, M.smoothstep(0.15, 0.55, comp.bodyRatio || 0));
+    ctx.strokeStyle = 'rgba(255,215,0,0.35)'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    const pts = {
+      head: [refCx, refCy - 0.2 * scale], neck: [refCx, refCy],
+      lShoulder: [refCx - 0.12 * scale, refCy + 0.02 * scale],
+      rShoulder: [refCx + 0.12 * scale, refCy + 0.02 * scale],
+      lElbow: [refCx - 0.22 * scale, refCy + 0.12 * scale],
+      rElbow: [refCx + 0.22 * scale, refCy + 0.12 * scale],
+      lWrist: [refCx - 0.15 * scale, refCy + 0.28 * scale],
+      rWrist: [refCx + 0.15 * scale, refCy + 0.28 * scale],
+      lHip: [refCx - 0.06 * scale, refCy + 0.22 * scale],
+      rHip: [refCx + 0.06 * scale, refCy + 0.22 * scale],
+      lKnee: [refCx - 0.08 * scale, refCy + 0.45 * scale],
+      rKnee: [refCx + 0.08 * scale, refCy + 0.45 * scale],
+      lAnkle: [refCx - 0.06 * scale, refCy + 0.65 * scale],
+      rAnkle: [refCx + 0.1 * scale, refCy + 0.55 * scale]
+    };
+    const bones = [['head', 'neck'], ['neck', 'lShoulder'], ['neck', 'rShoulder'],
+      ['lShoulder', 'lElbow'], ['lElbow', 'lWrist'], ['rShoulder', 'rElbow'],
+      ['rElbow', 'rWrist'], ['lShoulder', 'lHip'], ['rShoulder', 'rHip'],
+      ['lHip', 'rHip'], ['lHip', 'lKnee'], ['lKnee', 'lAnkle'],
+      ['rHip', 'rKnee'], ['rKnee', 'rAnkle']];
+    bones.forEach(([a, b]) => { ctx.beginPath(); ctx.moveTo(...pts[a]); ctx.lineTo(...pts[b]); ctx.stroke(); });
+    Object.values(pts).forEach(p => { ctx.beginPath(); ctx.arc(p[0], p[1], 3, 0, Math.PI * 2); ctx.fill(); });
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#fff8'; ctx.font = '11px system-ui';
+    ctx.fillText('参考姿势', refCx, refCy - 0.28 * scale);
+  }
+
+  // --- Pose skeleton ---
+  if (pose && pose.keypoints) {
+    const kp = pose.keypoints.map(k => ({ x: k.x / vw * w, y: k.y / vh * h, s: k.score }));
+    ctx.strokeStyle = '#2e7'; ctx.lineWidth = 2;
+    const bones = [[5, 6], [5, 7], [7, 9], [6, 8], [8, 10], [5, 11], [6, 12],
+      [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [0, 5]];
+    bones.forEach(([a, b]) => {
+      if (kp[a]?.s > 0.3 && kp[b]?.s > 0.3) {
+        ctx.beginPath(); ctx.moveTo(kp[a].x, kp[a].y); ctx.lineTo(kp[b].x, kp[b].y); ctx.stroke();
       }
     });
-    kp.forEach(k=>{
-      if(k.s>0.3){ctx.fillStyle='#2e7';ctx.beginPath();ctx.arc(k.x,k.y,4,0,Math.PI*2);ctx.fill()}
+    kp.forEach(k => {
+      if (k.s > 0.3) { ctx.fillStyle = '#2e7'; ctx.beginPath(); ctx.arc(k.x, k.y, 4, 0, Math.PI * 2); ctx.fill(); }
     });
   }
 
-  // Direction arrow
-  if(comp.arrow){
-    ctx.font='48px sans-serif';ctx.textAlign='center';
-    ctx.fillStyle='#ffd700';ctx.fillText(comp.arrow,w/2,h/2-80);
-  }
-
-  // Color grade overlay
-  if(state.cinematic){
-    ctx.fillStyle='rgba(0,140,180,0.06)';ctx.fillRect(0,0,w,h);
+  // --- Direction arrow ---
+  if (comp.arrow) {
+    ctx.font = '48px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd700'; ctx.fillText(comp.arrow, w / 2, h / 2 - 80);
   }
 }
 
 // --- UI Updates ---
-function updateUI(comp,exp,poseQ,scene){
-  $('#score').textContent=Math.round((comp.score+exp.score+poseQ.score)/3);
-  $('#g-comp').textContent=`构图 ${comp.score}`;
-  $('#g-exp').textContent=`曝光 ${exp.score}`;
-  $('#g-pose').textContent=`姿态 ${poseQ.score}`;
-  $('#scene-badge').textContent=scene.hint||scene.scene;
-  $('#prompt').textContent=comp.hint||'对准人物';
-  $('#shutter').classList.toggle('ready',comp.score>=70&&exp.score>=60);
+function updateUI(comp, exp, poseQ, features, aesParams) {
+  $('#score').textContent = Math.round((comp.score + exp.score + poseQ.score) / 3);
+  $('#g-comp').textContent = `构图 ${comp.score}`;
+  $('#g-exp').textContent = `曝光 ${exp.score}`;
+  $('#g-pose').textContent = `姿态 ${poseQ.score}`;
 
-  const scores=[{l:'构图',s:comp.score},{l:'曝光',s:exp.score},{l:'姿态',s:poseQ.score}];
-  $('#scores').innerHTML=scores.map(s=>{
-    const cls=s.s>=70?'good':s.s>=40?'warn':'bad';
+  // Scene description (dynamic, from features)
+  let sceneDesc = '';
+  if (features.backlightStrength > 0.3) sceneDesc = '🌅 逆光';
+  else if (features.avgLuminance < 0.15) sceneDesc = '🌙 暗光';
+  else if (features.greenDominance > 1.25) sceneDesc = '🌿 户外';
+  else if (features.skinRatio > 0.06) sceneDesc = '👤 人像';
+  else if (features.avgLuminance > 0.7) sceneDesc = '☀️ 明亮';
+  else sceneDesc = '📷 标准';
+  if (aesParams) sceneDesc += ' ' + (aesParams.badge || '');
+  $('#scene-badge').textContent = sceneDesc;
+
+  $('#prompt').textContent = comp.hint || '对准人物';
+  $('#shutter').classList.toggle('ready', comp.score >= 70 && exp.score >= 60);
+
+  const scores = [{ l: '构图', s: comp.score }, { l: '曝光', s: exp.score }, { l: '姿态', s: poseQ.score }];
+  $('#scores').innerHTML = scores.map(s => {
+    const cls = s.s >= 70 ? 'good' : s.s >= 40 ? 'warn' : 'bad';
     return `<span class="chip ${cls}">${s.l} ${s.s}</span>`;
   }).join('');
 }
 
-function showHint(msg){
-  const el=$('#hint-banner');el.textContent=msg;el.classList.add('show');
-  clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),3000);
+function showHint(msg) {
+  const el = $('#hint-banner'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 3000);
 }
 
 // --- Voice ---
-function toggleVoice(){
-  if(state.listening){stopVoice();return}
-  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SpeechRecognition){showHint('浏览器不支持语音');return}
-  const rec=new SpeechRecognition();rec.lang='zh-CN';rec.continuous=true;rec.interimResults=true;
-  rec.onresult=e=>{
-    const text=Array.from(e.results).map(r=>r[0].transcript).join('');
-    matchVoice(text);
-  };
-  rec.onerror=()=>stopVoice();
-  rec.start();
-  state.recognition=rec;state.listening=true;
+function startVoice() {
+  if (state.listening) return;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) { showHint('浏览器不支持语音'); return; }
+  const rec = new SpeechRecognition(); rec.lang = 'zh-CN'; rec.continuous = false; rec.interimResults = true;
+  rec.onresult = e => { const text = Array.from(e.results).map(r => r[0].transcript).join(''); matchVoice(text); };
+  rec.onerror = () => stopVoice();
+  rec.onend = () => stopVoice();
+  try { rec.start(); } catch (e) { }
+  state.recognition = rec; state.listening = true;
   $('#mic-btn').classList.add('listening');
 }
-
-function stopVoice(){
-  if(state.recognition){state.recognition.stop();state.recognition=null}
-  state.listening=false;$('#mic-btn').classList.remove('listening');
+function stopVoice() {
+  if (state.recognition) { try { state.recognition.stop(); } catch (e) { } state.recognition = null; }
+  state.listening = false; $('#mic-btn').classList.remove('listening');
 }
-
-function matchVoice(text){
-  const map={
-    '腿':(text.includes('长')||text.includes('拉')||text.includes('显高'))?'longerLegs':null,
-    '脸':(text.includes('小')||text.includes('瘦'))?'smallerFace':null,
-    '电影':'cinematic','大片':'cinematic','质感':'cinematic',
-    '暖':'warmPortrait','港':'hongKongVibe','日系':'japaneseFresh','清新':'japaneseFresh',
-    '冷':'coolFashion'
+function matchVoice(text) {
+  const map = {
+    '腿': (text.includes('长') || text.includes('拉') || text.includes('显高')) ? 'longerLegs' : null,
+    '脸': (text.includes('小') || text.includes('瘦')) ? 'smallerFace' : null,
+    '电影': 'cinematic', '大片': 'cinematic', '质感': 'cinematic',
+    '暖': 'warmPortrait', '港': 'hongKongVibe', '日系': 'japaneseFresh', '清新': 'japaneseFresh',
+    '冷': 'coolFashion'
   };
-  for(const[k,v]of Object.entries(map)){
-    if(text.includes(k)){const r=typeof v==='function'?v():v;if(r){applyAesthetic(r);return}}
+  for (const [k, v] of Object.entries(map)) {
+    if (text.includes(k)) { const r = typeof v === 'function' ? v() : v; if (r) { applyAesthetic(r); return; } }
   }
 }
 
 // --- Mode ---
-function toggleMode(){
-  const modes=['fullAuto','semiAuto','manual'];
-  const idx=modes.indexOf(state.mode);
-  state.mode=modes[(idx+1)%3];
-  const labels={fullAuto:'🤖全自动',semiAuto:'🎯半自动',manual:'👋手动'};
-  $('#btn-mode').textContent=labels[state.mode];
-  showHint(state.mode==='fullAuto'?'全自动：曝光对焦全部自动':state.mode==='semiAuto'?'半自动：自动优化，你控构图':'手动：全部自己调');
+function toggleMode() {
+  const modes = ['fullAuto', 'semiAuto', 'manual'];
+  const idx = modes.indexOf(state.mode);
+  state.mode = modes[(idx + 1) % 3];
+  const labels = { fullAuto: '🤖全自动', semiAuto: '🎯半自动', manual: '👋手动' };
+  $('#btn-mode').textContent = labels[state.mode];
+  showHint(state.mode === 'fullAuto' ? '全自动：构图曝光滤镜全自动' :
+    state.mode === 'semiAuto' ? '半自动：你控构图，其余自动' : '手动：全部自己调');
 }
 
 // --- Photo ---
-function takePhoto(){
-  if(!state.capture)return;
-  state.capture.takePhoto().then(blob=>{
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=`photowing_${Date.now()}.jpg`;
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
+function takePhoto() {
+  const video = $('#video');
+  if (!video.videoWidth) return showHint('相机未就绪');
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  // Apply current aesthetic filter to canvas (like a LUT)
+  const filter = video.style.filter;
+  if (filter && filter !== 'none') {
+    ctx.filter = filter;
+  }
+  ctx.drawImage(video, 0, 0);
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `photowing_${Date.now()}.jpg`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showHint('📸 照片已保存');
     navigator.vibrate?.(50);
-  }).catch(()=>showHint('拍照失败'));
+  }, 'image/jpeg', 0.92);
 }
 
-// --- Main Loop ---
-let lastPoseTime=0;
-async function loop(ts){
-  if(!state.running)return;
-  if(ts-state.lastFrame>1000){state.fps=state.frameCount;state.frameCount=0;state.lastFrame=ts}
-  state.frameCount++;
+// --- Fallback Person Detector ---
+let lastFrameData = null, personConfidence = 0;
+function detectPersonFallback(video) {
+  const w = 120, h = 90;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'); ctx.drawImage(video, 0, 0, w, h);
+  const data = ctx.getImageData(0, 0, w, h).data;
+  let skinPx = 0, motionPx = 0, edgePx = 0, total = 0;
+  const step = 4;
+  for (let y = step; y < h - step; y += step) {
+    for (let x = step; x < w - step; x += step) {
+      const i = (y * w + x) * 4;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      const rgDiff = Math.abs(r - g);
+      if (r > 80 && g > 30 && b > 15 && Math.max(r, g, b) - Math.min(r, g, b) > 10 && rgDiff > 10 && r > g && r > b) skinPx++;
+      if (lastFrameData && i + 2 < lastFrameData.length) {
+        const md = Math.abs(data[i] - lastFrameData[i]) + Math.abs(data[i + 1] - lastFrameData[i + 1]) + Math.abs(data[i + 2] - lastFrameData[i + 2]);
+        if (md > 15) motionPx++;
+      }
+      const right = (y * w + (x + step)) * 4 + 1;
+      const down = ((y + step) * w + x) * 4 + 1;
+      if (right < data.length && down < data.length) {
+        const gx = Math.abs(data[i + 1] - data[right]);
+        const gy = Math.abs(data[i + 1] - data[down]);
+        if (gx + gy > 20) edgePx++;
+      }
+      total++;
+    }
+  }
+  lastFrameData = new Uint8Array(data);
+  const skinRatio = skinPx / total;
+  const motionRatio = motionPx / total;
+  const edgeRatio = edgePx / total;
+  let detected = false;
+  if (skinRatio > 0.03) detected = true;
+  else if (motionRatio > 0.05 && edgeRatio > 0.08) detected = true;
+  else if (skinRatio > 0.015 && edgeRatio > 0.05) detected = true;
+  if (detected) personConfidence = Math.min(1, personConfidence + 0.15);
+  else personConfidence = Math.max(0, personConfidence - 0.08);
+  return personConfidence > 0.4;
+}
 
-  const video=$('#video');
-  const vw=video.videoWidth||1920,vh=video.videoHeight||1080;
-  if(!vw)return requestAnimationFrame(loop);
+// ==================== Main Loop (temporally smoothed continuous engine) ====================
+let lastPoseTime = 0, lastSceneTime = 0, lastDrawTime = 0, lastUITime = 0;
+async function loop(ts) {
+  if (!state.running) return;
+  const video = $('#video');
+  const vw = video.videoWidth || 1920, vh = video.videoHeight || 1080;
+  if (!vw) return requestAnimationFrame(loop);
 
-  // Pose detection (throttled ~10fps for perf)
-  let pose=state.pose;
-  if(state.poseDetector&&ts-lastPoseTime>100){
-    try{
-      const result=state.poseDetector.detectForVideo(video,ts);
-      pose=result.landmarks?{keypoints:result.landmarks[0]||[]}:null;
-      state.pose=pose;
-      lastPoseTime=ts;
-    }catch(e){}
+  // Pose: every 150ms
+  let pose = state.pose;
+  if (state.poseDetector && ts - lastPoseTime > 150) {
+    try {
+      const result = state.poseDetector.detectForVideo(video, ts);
+      pose = result.landmarks ? { keypoints: result.landmarks[0] || [] } : null;
+      state.pose = pose; lastPoseTime = ts;
+    } catch (e) { }
+  }
+  if (!state.poseDetector && ts - lastPoseTime > 500) {
+    if (detectPersonFallback(video)) state.pose = state.pose || { keypoints: [{ x: vw / 2, y: vh * 0.4, score: 0.6 }] };
+    else state.pose = null;
+    lastPoseTime = ts;
   }
 
-  // Scene
-  const scene=analyzeScene(video,pose);
+  // Scene features: every 300ms (continuous vector, no buckets)
+  let rawFeatures = state._rawFeatures || { avgLuminance: 0.5, dynamicRange: 0.3, colorTemp: 5500, saturation: 0.5, skinRatio: 0, greenDominance: 0, backlightStrength: 0, motionActivity: 0, edgeComplexity: 0, negativeSpaceLeft: 0, negativeSpaceRight: 0 };
+  if (ts - lastSceneTime > 300) {
+    const extracted = extractFeatures(video, pose);
+    // EMA smooth all features (连续平滑)
+    const alpha = state._smoothAlpha;
+    for (const k of Object.keys(extracted)) {
+      rawFeatures[k] = M.ema(rawFeatures[k] || extracted[k], extracted[k], alpha);
+    }
+    state._rawFeatures = rawFeatures;
+    lastSceneTime = ts;
+  }
 
-  // Guidance
-  const comp=evalComposition(pose,vw,vh);
-  const exp=evalExposure(scene,pose);
-  const poseQ=evalPose(pose);
+  const features = rawFeatures;
+  const aesParams = state._aesParams; // from active aesthetic
 
-  // Draw
-  drawOverlay(video,pose,scene,comp,exp,poseQ);
-  updateLetterbox(state.letterbox||0);
-  updateUI(comp,exp,poseQ,scene);
+  // Guidance with dynamic parameters
+  const comp = evalComposition(pose, vw, vh, features, aesParams);
+  const exp = evalExposure(features, aesParams);
+  const poseQ = evalPose(pose);
+  const shotType = detectShotType(pose);
+  state.shotType = shotType.type;
+  state.shotTypeRatio = shotType.ratio;
+
+  // Dynamic CSS filter (rebuilt each frame from continuous params)
+  if (aesParams && features) {
+    const filter = buildCSSFilter(aesParams, features);
+    video.style.filter = filter;
+    video.style.transition = 'filter 0.4s ease';
+  }
+
+  // Dynamic vignette
+  const vignetteStr = aesParams ? (aesParams.vignetteBias || 0) : 0;
+  updateVignette(vignetteStr, features);
+
+  // Letterbox
+  const letterboxH = state._letterboxOverride || 0;
+  updateLetterbox(letterboxH);
+
+  // Draw: every 100ms
+  if (ts - lastDrawTime > 100) {
+    drawOverlay(video, pose, comp, features);
+    lastDrawTime = ts;
+  }
+
+  // UI: every 300ms
+  if (ts - lastUITime > 300) {
+    updateUI(comp, exp, poseQ, features, aesParams);
+    const typeLabel = { face: '👤 面部特写', bust: '🧍 半身胸像', halfBody: '🧍 半身照', fullBody: '🧍 全身照', environ: '🌍 环境人像' };
+    $('#shot-type').textContent = typeLabel[shotType.type] || '';
+    lastUITime = ts;
+  }
 
   requestAnimationFrame(loop);
 }
 
+// --- Zoom ---
+function setZoom(delta) {
+  state.zoom = Math.max(0.6, Math.min(5, state.zoom + delta));
+  $('#video').style.transform = `scale(${state.zoom})`;
+  $('#zoom-label').textContent = state.zoom.toFixed(1) + 'x';
+}
+function setZoomTo(val) { state.zoom = val; $('#video').style.transform = `scale(${val})`; $('#zoom-label').textContent = val.toFixed(1) + 'x'; }
+
 // --- Init ---
-async function init(){
-  try{await loadPose()}catch(e){console.warn('MediaPipe load failed, using basic mode',e)}
+async function init() {
+  try { await loadPose(); } catch (e) { console.warn('MediaPipe load failed', e); }
   startCamera();
-  $('#shutter').addEventListener('click',takePhoto);
-  $('#btn-mode').addEventListener('click',toggleMode);
-  $('#btn-pose').addEventListener('click',()=>showHint('网页版暂不支持姿势参考叠加'));
-  $('#mic-btn').addEventListener('click',toggleVoice);
-  $$('#aesthetic-bar button').forEach(b=>b.addEventListener('click',()=>applyAesthetic(b.dataset.aes)));
+  $('#shutter').addEventListener('click', takePhoto);
+  $('#btn-mode').addEventListener('click', toggleMode);
+  $('#btn-pose').addEventListener('click', () => {
+    state.poseMode = !state.poseMode;
+    $('#btn-pose').textContent = state.poseMode ? '关闭参考' : '姿势参考';
+    $('#btn-pose').classList.toggle('active', state.poseMode);
+    showHint(state.poseMode ? '半透明骨架是参考姿势，把人物对准它' : '姿势参考已关闭');
+  });
+  $('#mic-btn').addEventListener('pointerdown', e => { e.preventDefault(); startVoice(); });
+  $('#mic-btn').addEventListener('pointerup', () => stopVoice());
+  $('#mic-btn').addEventListener('pointerleave', () => stopVoice());
+  $('#zoom-in').addEventListener('click', () => setZoom(0.2));
+  $('#zoom-out').addEventListener('click', () => setZoom(-0.2));
+  let lastPinchDist = 0;
+  document.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      if (lastPinchDist > 0) { const delta = (dist - lastPinchDist) * 0.01; setZoom(delta); }
+      lastPinchDist = dist;
+    }
+  }, { passive: true });
+  document.addEventListener('touchend', () => { lastPinchDist = 0; });
+  $$('#aesthetic-bar button').forEach(b => b.addEventListener('click', () => applyAesthetic(b.dataset.aes)));
 }
 init();
 </script>
