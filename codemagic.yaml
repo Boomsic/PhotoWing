@@ -1,0 +1,75 @@
+# Codemagic CI/CD 配置 — PhotoWing iOS
+# 文档: https://docs.codemagic.io/yaml/getting-started/
+
+workflows:
+  photo-wing-ios:
+    name: PhotoWing iOS Build
+    max_build_duration: 30
+    instance_type: mac_mini_m1
+    environment:
+      xcode: 16.0
+      vars:
+        BUNDLE_ID: "com.photowing.app"
+        SCHEME: "PhotoWing"
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+
+    scripts:
+      # 1. 安装 XcodeGen
+      - name: Install XcodeGen
+        script: |
+          brew install xcodegen
+
+      # 2. 生成 .xcodeproj
+      - name: Generate Xcode project
+        script: |
+          xcodegen generate
+          ls -la PhotoWing.xcodeproj
+
+      # 3. 构建 Archive
+      - name: Build and archive
+        script: |
+          xcodebuild archive \
+            -project PhotoWing.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$CM_BUILD_DIR/PhotoWing.xcarchive" \
+            -allowProvisioningUpdates \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            DEVELOPMENT_TEAM="$APPLE_DEVELOPER_TEAM"
+
+      # 4. 导出 IPA
+      - name: Export IPA
+        script: |
+          xcodebuild -exportArchive \
+            -archivePath "$CM_BUILD_DIR/PhotoWing.xcarchive" \
+            -exportOptionsPlist exportOptions.plist \
+            -exportPath "$CM_BUILD_DIR/artifacts" \
+            -allowProvisioningUpdates
+
+      # 5. 列出产物
+      - name: List artifacts
+        script: |
+          ls -lh "$CM_BUILD_DIR/artifacts/"
+
+    artifacts:
+      - artifacts/*.ipa
+
+    publishing:
+      codemagic:
+        # 构建完成后 Codemagic 给你一个安装页面（含二维码）
+        # 在 iPhone 上扫码就能装
+        enabled: true
+      email:
+        recipients:
+          - CHANGE_ME@example.com
+        notify:
+          success: true
+          failure: true

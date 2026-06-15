@@ -1,0 +1,3 @@
+# 只提交 PhotoWing 项目文件，排除父目录干扰
+../*
+!../PhotoWing/
