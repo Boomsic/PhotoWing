@@ -864,7 +864,8 @@ async function init(){
   const drawer=$('#drawer');
   $('#drawer-handle').addEventListener('click',()=>drawer.classList.toggle('collapsed'));
   // iOS: 必须用户点击才能请求相机权限
-  $('#start-overlay').addEventListener('click',async ()=>{
+  $('#start-overlay').addEventListener('pointerdown',async (e)=>{
+    e.preventDefault();
     $('#start-overlay').classList.add('hide');
     try{await loadPose()}catch(e){console.warn('MediaPipe failed',e)}
     startCamera();
