@@ -56,6 +56,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
 #scene-tip .tip-body{font-size:12px;color:var(--dim);line-height:1.6}
 #scene-tip .tip-params{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
 #scene-tip .tip-params span{font-size:10px;background:var(--faint);padding:2px 8px;border-radius:8px;color:var(--dim)}
+/* ─── 美学参数面板 ─── */
+#aes-params{display:none;background:var(--glass);border-radius:14px;padding:10px;margin-bottom:8px;border:1px solid var(--gold)}
+#aes-params.show{display:block;animation:fadeIn .4s}
+#aes-params .aes-title{font-size:12px;font-weight:700;color:var(--gold);margin-bottom:6px}
+#aes-params .aes-rows{display:grid;grid-template-columns:1fr 1fr;gap:3px 10px}
+#aes-params .aes-row{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--dim)}
+#aes-params .aes-row .val{color:var(--text);font-variant-numeric:tabular-nums}
+#aes-params .aes-row .delta{font-size:9px;margin-left:3px}
+#aes-params .aes-row .delta.pos{color:var(--green)}#aes-params .aes-row .delta.neg{color:var(--red)}
 /* ─── Score Chips ─── */
 #score-chips{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
 #score-chips .chip{font-size:11px;padding:4px 10px;border-radius:10px;color:var(--text);font-weight:500}
@@ -146,6 +155,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
     <div id="drawer-handle"></div>
     <div id="drawer-content">
       <div id="scene-tip"></div>
+      <div id="aes-params"></div>
       <div id="score-chips"></div>
       <div id="prompt">对准人物开始拍摄</div>
       <div id="btns">
@@ -529,9 +539,32 @@ function buildFilter(p,feat){
 function applyAesthetic(key){
   S.activeAesthetic=S.activeAesthetic===key?null:key;
   $$('#aesthetic-scroll button').forEach(b=>b.classList.toggle('on',b.dataset.aes===S.activeAesthetic));
-  if(!S.activeAesthetic){$('#video').style.filter='none';setZoomTo(1);S._aesParams=null;S._letterboxOverride=0;toast('已恢复默认');return}
+  if(!S.activeAesthetic){$('#video').style.filter='none';setZoomTo(1);S._aesParams=null;S._letterboxOverride=0;$('#aes-params').classList.remove('show');toast('已恢复默认');return}
   const p=AES[key];S._aesParams=p;S._letterboxOverride=p.letterbox||0;
   if(p.zoom)setZoomTo(p.zoom);toast(`${p.badge} ${p.tip}`);
+  showAesParams(key,p);
+}
+
+// ─── 美学参数面板 ───
+function showAesParams(key,p){
+  const labels={compX:'构图X偏移',compY:'构图Y偏移',zoom:'变焦',contrastBias:'对比度',satBias:'饱和度',warmthBias:'色温',vignetteBias:'暗角',letterbox:'宽银幕',exposureBias:'曝光补偿'};
+  const units={compX:'',compY:'',zoom:'x',contrastBias:'',satBias:'',warmthBias:'K',vignetteBias:'',letterbox:'%',exposureBias:'EV'};
+  const defaults={compX:0,compY:0,zoom:1,contrastBias:0,satBias:0,warmthBias:0,vignetteBias:0,letterbox:0,exposureBias:0};
+  const names={japaneseFresh:'日系清新',warmPortrait:'暖调人像',coolFashion:'清冷时尚',cinematic:'电影感',vintageFilm:'复古胶片',hongKongVibe:'港风',highKey:'高调',moodyCool:'冷感灰调',sunsetGlow:'落日余晖',longerLegs:'大长腿',smallerFace:'小脸',landscape:'风光大片'};
+  let rows='';
+  for(const[k,v]of Object.entries(labels)){
+    const val=p[k]||0,def=defaults[k]||0,delta=val-def;
+    if(Math.abs(val)<.001&&Math.abs(delta)<.001)continue;
+    let d='',dc='';
+    if(k==='letterbox'){d=`${(val*100).toFixed(0)}%`;dc=delta!==0?(delta>0?'pos':'neg'):''}
+    else if(k==='zoom'){d=`${val.toFixed(1)}x`;dc=delta!==0?(delta>0?'pos':'neg'):''}
+    else if(k==='warmthBias'){d=val>0?`+${val.toFixed(0)}K`:val<0?`${val.toFixed(0)}K`:'0';dc=val>0?'pos':val<0?'neg':''}
+    else if(k==='exposureBias'){d=val>0?`+${val.toFixed(2)}`:val<0?`${val.toFixed(2)}`:'0';dc=val>0?'pos':val<0?'neg':''}
+    else {d=val>0?`+${val.toFixed(2)}`:val<0?`${val.toFixed(2)}`:'0';dc=val>.02?'pos':val<-.02?'neg':''}
+    rows+=`<div class="aes-row"><span>${v}</span><span><span class="val">${d}</span>${dc?`<span class="delta ${dc}">${dc==='pos'?'▲':'▼'}</span>`:''}</span></div>`;
+  }
+  $('#aes-params').innerHTML=`<div class="aes-title">${p.badge} ${names[key]||key} · 参数调整</div><div class="aes-rows">${rows}</div><div style="font-size:10px;color:var(--gold);margin-top:4px">💡 ${p.tip}</div>`;
+  $('#aes-params').classList.add('show');
 }
 
 // ─── 暗角 ───
@@ -609,6 +642,17 @@ function drawPoseRef(ctx,cx,cy,comp,h){
 }
 function drawSkeleton(ctx,pose,w,h,vw,vh){
   const kp=pose.keypoints.map(k=>({x:k.x/vw*w,y:k.y/vh*h,s:k.score}));
+  // ─── 人体边界框 ───
+  const bodyKP=[0,5,6,11,12,13,14,15,16,23,24,25,26,27,28];
+  let bxMin=Infinity,byMin=Infinity,bxMax=-Infinity,byMax=-Infinity,bn=0;
+  bodyKP.forEach(i=>{if(kp[i]&&kp[i].s>.4){bxMin=Math.min(bxMin,kp[i].x);byMin=Math.min(byMin,kp[i].y);bxMax=Math.max(bxMax,kp[i].x);byMax=Math.max(byMax,kp[i].y);bn++}});
+  if(bn>=4){
+    const bw=bxMax-bxMin,bh=byMax-byMin;
+    ctx.fillStyle='rgba(46,231,0,.06)';ctx.strokeStyle='rgba(46,231,0,.25)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.roundRect(bxMin-4,byMin-4,bw+8,bh+8,8);ctx.fill();ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // ─── 骨骼连线 ───
   const bones='5,6 5,7 7,9 6,8 8,10 5,11 6,12 11,12 11,13 13,15 12,14 14,16 0,5'.split(' ');
   ctx.strokeStyle='#2e7';ctx.lineWidth=2;
   bones.forEach(b=>{const[a,c]=b.split(',').map(Number);if(kp[a]?.s>.3&&kp[c]?.s>.3){ctx.beginPath();ctx.moveTo(kp[a].x,kp[a].y);ctx.lineTo(kp[c].x,kp[c].y);ctx.stroke()}});
