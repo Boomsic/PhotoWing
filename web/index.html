@@ -56,6 +56,21 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
 #scene-tip .tip-body{font-size:12px;color:var(--dim);line-height:1.6}
 #scene-tip .tip-params{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
 #scene-tip .tip-params span{font-size:10px;background:var(--faint);padding:2px 8px;border-radius:8px;color:var(--dim)}
+/* ─── 实时参数面板 (v4) ─── */
+#live-params{display:none;background:var(--glass);border-radius:14px;padding:10px;margin-bottom:8px;border:1px solid var(--faint)}
+#live-params.show{display:block;animation:fadeIn .4s}
+#live-params .lp-header{font-size:12px;font-weight:700;color:var(--gold);margin-bottom:6px;display:flex;align-items:center;gap:4px}
+#live-params .lp-icon{font-size:14px}
+#live-params .lp-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;margin-bottom:8px}
+#live-params .lp-item{display:flex;justify-content:space-between;align-items:center;font-size:10px;padding:2px 0;border-bottom:1px solid var(--faint)}
+#live-params .lp-key{color:var(--dim)}
+#live-params .lp-val{color:var(--text);font-weight:500}
+#live-params .lp-rec{background:var(--faint);border-radius:10px;padding:6px 8px;margin-bottom:6px}
+#live-params .lp-rec-title{font-size:10px;font-weight:600;color:var(--gold);display:block;margin-bottom:4px}
+#live-params .lp-rec-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;font-size:10px;color:var(--dim)}
+#live-params .lp-scores{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#live-params .lp-chip{font-size:10px;padding:2px 8px;border-radius:8px;color:var(--text);font-weight:500}
+#live-params .lp-chip.good{background:#2e73}#live-params .lp-chip.warn{background:#e6a81733;color:var(--warn)}#live-params .lp-chip.bad{background:#e6321733;color:var(--red)}
 /* ─── 美学参数面板 ─── */
 #aes-params{display:none;background:var(--glass);border-radius:14px;padding:10px;margin-bottom:8px;border:1px solid var(--gold)}
 #aes-params.show{display:block;animation:fadeIn .4s}
@@ -163,6 +178,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-famil
     <div id="drawer-content">
       <div id="scene-tip"></div>
       <div id="aes-params"></div>
+      <div id="live-params"></div>
       <div id="score-chips"></div>
       <div id="prompt">对准人物开始拍摄</div>
       <div id="btns">
@@ -513,6 +529,133 @@ function detectShotType(pose){
   return{type:'face',ratio:M.norm(bh,.05,.2)};
 }
 
+// ════════════════ 照片类型分类器 v4 (五类: 风景/人像/正拍/物体/特写) ════════════════
+function classifyPhotoType(features,pose,st){
+  // 人像: 皮肤占比高+检测到人体+上半身景别
+  let portraitScore=0;
+  if(pose&&pose.keypoints&&pose.keypoints.length>3)portraitScore+=0.4;
+  portraitScore+=M.smoothstep(0.02,0.1,features.skinRatio||0)*0.35;
+  if(st&&(st.type==='halfBody'||st.type==='fullBody'||st.type==='bust'))portraitScore+=0.25;
+
+  // 风景: 自然元素主导+低皮肤
+  let landscapeScore=0;
+  landscapeScore+=M.smoothstep(1.1,1.6,features.greenDominance||0)*0.22;
+  landscapeScore+=M.smoothstep(0.2,0.5,features.skyRatio||0)*0.22;
+  landscapeScore+=M.smoothstep(0.15,0.4,features.waterDominance||0)*0.18;
+  landscapeScore+=(1-M.smoothstep(0.02,0.08,features.skinRatio||0))*0.2;
+  landscapeScore+=M.smoothstep(0.3,0.6,features.colorDiversity||0)*0.1;
+  landscapeScore+=M.smoothstep(0.4,0.7,features.dynamicRange||0)*0.08;
+
+  // 物体: 中心边缘复杂度高+无人体+非自然背景
+  let objectScore=0;
+  objectScore+=M.smoothstep(0.35,0.7,features.edgeComplexity||0)*0.3;
+  objectScore+=(1-M.smoothstep(0.02,0.06,features.skinRatio||0))*0.22;
+  objectScore+=(1-M.smoothstep(1.0,1.3,features.greenDominance||0))*0.15;
+  objectScore+=(1-M.smoothstep(0.15,0.35,features.skyRatio||0))*0.15;
+  objectScore+=M.smoothstep(0.15,0.45,features.colorDiversity||0)*0.18;
+
+  // 特写: 极高细节+近距离+低DR
+  let closeupScore=0;
+  if(st&&st.type==='face')closeupScore+=0.45;
+  if(st&&st.type==='bust')closeupScore+=0.25;
+  closeupScore+=M.smoothstep(0.5,0.85,features.edgeComplexity||0)*0.25;
+  closeupScore+=(1-M.smoothstep(0.3,0.6,features.dynamicRange||0))*0.15;
+  if(features.avgLuminance>.4&&features.avgLuminance<.7)closeupScore+=0.05; // 良好布光
+
+  // 正拍(证件/文档): 居中对称+中性色+低多样性
+  let formalScore=0;
+  const nsym=Math.abs((features.negativeSpaceL||0)-(features.negativeSpaceR||0));
+  formalScore+=(1-M.smoothstep(0.08,0.25,nsym))*0.3;
+  formalScore+=(1-M.smoothstep(0.35,0.65,features.colorDiversity||0))*0.25;
+  formalScore+=(1-M.smoothstep(0.35,0.65,features.saturation||0))*0.2;
+  formalScore+=(1-M.smoothstep(0.15,0.4,features.dynamicRange||0))*0.12;
+  if(st&&(st.type==='bust'||st.type==='halfBody'))formalScore+=0.13;
+
+  // 找最高分 → 连续置信度
+  const scores={portrait:portraitScore,landscape:landscapeScore,object:objectScore,closeup:closeupScore,formal:formalScore};
+  let best='portrait',bestS=0;
+  for(const[k,v]of Object.entries(scores)){if(v>bestS){bestS=v;best=k}}
+  bestS=M.clamp(bestS,0,1);
+  const labels={landscape:'🏔️风景',portrait:'👤人像',formal:'📋正拍',object:'📦物体',closeup:'🔍特写'};
+  const icons={landscape:'🏔️',portrait:'👤',formal:'📋',object:'📦',closeup:'🔍'};
+  return{type:best,confidence:bestS,label:labels[best],icon:icons[best]};
+}
+
+// ════════════════ 智能裁剪引擎 v4 ════════════════
+function smartCrop(video,pose,comp,photoType,shotType){
+  const vw=video.videoWidth||1920,vh=video.videoHeight||1080;
+  // 根据照片类型选最佳宽高比
+  let targetRatio;
+  switch(photoType.type){
+    case 'landscape':targetRatio=16/9;break;
+    case 'portrait':targetRatio=3/4;break;
+    case 'formal':targetRatio=4/3;break;
+    case 'object':targetRatio=1/1;break;
+    case 'closeup':targetRatio=4/5;break;
+    default:targetRatio=4/3;
+  }
+  // 主体位置
+  let cx=(comp?.targetX||.4)*vw,cy=(comp?.targetY||.5)*vh;
+  if(!pose||!pose.keypoints||pose.keypoints.length<3){cx=vw*.5;cy=vh*.42}
+  // 计算裁剪框
+  let cropW,cropH;
+  const videoRatio=vw/vh;
+  if(videoRatio>targetRatio){cropH=vh;cropW=vh*targetRatio}
+  else{cropW=vw;cropH=vw/targetRatio}
+  // 以主体为中心,保留头部空间
+  let cropX=cx-cropW/2,cropY=cy-cropH*0.42;
+  if(photoType.type==='landscape')cropY=cy-cropH*0.55;
+  if(photoType.type==='closeup')cropY=cy-cropH*0.35;
+  // 边界钳制
+  cropX=M.clamp(cropX,0,vw-cropW);cropY=M.clamp(cropY,0,vh-cropH);
+  return{x:Math.round(cropX),y:Math.round(cropY),w:Math.round(cropW),h:Math.round(cropH),ratio:targetRatio};
+}
+
+// ════════════════ 实时参数面板 v4 ════════════════
+function showLiveParams(feat,light,photoType,comp,exp,poseQ){
+  const sc=S.currentScene,scCf=S.sceneConfidence;
+  // 场景
+  let scName='未识别';
+  if(scCf>.3&&SCENE_ARCHETYPES[sc]){
+    const lb={beach:'海边',forest:'森林',snow:'雪景',street:'古镇',tunnel:'隧道',rooftop:'天台',indoor:'室内',rain:'雨天',meadow:'郊野',night:'夜景',flower:'花景',railing:'栏杆'};
+    scName=`${SCENE_ARCHETYPES[sc].icon} ${lb[sc]||sc}`;
+  }
+  // 光线
+  let lDir='顺光';if(light.backStr>.3)lDir='逆光';else if(light.sideStrength>.3)lDir=light.dir>0?'右侧光':'左侧光';else if(light.topStr>.2)lDir='顶光';
+  const lQuality=light.quality>.6?'硬光':'柔光';
+  const lTemp=light.temp>.6?'暖调':light.temp<.4?'冷调':'中性';
+  // 推荐参数
+  const recAperture=photoType.type==='portrait'?'f/1.8-2.8':photoType.type==='landscape'?'f/8-11':photoType.type==='closeup'?'f/2.8-5.6':photoType.type==='object'?'f/4-8':'f/5.6-8';
+  const recIso=feat.avgLuminance<.2?'ISO800-3200':feat.avgLuminance<.4?'ISO400-800':feat.avgLuminance<.7?'ISO100-400':'ISO100-200';
+  const recShutter=feat.motionActivity>.1?'≥1/250s':feat.avgLuminance<.15?'≥1/30s 三脚架':'1/100-1/500s';
+  const recEv=exp?.exposureBias||0;
+
+  let h='';
+  h+=`<div class="lp-header"><span class="lp-icon">📊</span>实时参数</div>`;
+  h+=`<div class="lp-grid">`;
+  h+=`<div class="lp-item"><span class="lp-key">场景</span><span class="lp-val">${scName}</span></div>`;
+  h+=`<div class="lp-item"><span class="lp-key">类型</span><span class="lp-val">${photoType.icon} ${photoType.label}</span></div>`;
+  h+=`<div class="lp-item"><span class="lp-key">光线</span><span class="lp-val">${lDir}·${lQuality}·${lTemp}</span></div>`;
+  h+=`<div class="lp-item"><span class="lp-key">亮度</span><span class="lp-val">${(feat.avgLuminance*100).toFixed(0)}% (${feat.avgLuminance<.2?'暗':feat.avgLuminance>.7?'亮':'适中'})</span></div>`;
+  h+=`<div class="lp-item"><span class="lp-key">动态范围</span><span class="lp-val">${(feat.dynamicRange*100).toFixed(0)}%</span></div>`;
+  h+=`<div class="lp-item"><span class="lp-key">色温</span><span class="lp-val">${feat.colorTemp.toFixed(0)}K</span></div>`;
+  h+=`<div class="lp-item"><span class="lp-key">饱和度</span><span class="lp-val">${(feat.saturation*100).toFixed(0)}%</span></div>`;
+  h+=`<div class="lp-item"><span class="lp-key">背光强度</span><span class="lp-val">${(feat.backlightStrength*100).toFixed(0)}%</span></div>`;
+  h+=`</div>`;
+  h+=`<div class="lp-rec"><span class="lp-rec-title">📐 推荐设置</span>`;
+  h+=`<div class="lp-rec-grid">`;
+  h+=`<span>光圈 ${recAperture}</span><span>ISO ${recIso}</span>`;
+  h+=`<span>快门 ${recShutter}</span><span>曝光 ${recEv>0?'+':''}${recEv.toFixed(1)}EV</span>`;
+  h+=`</div></div>`;
+  h+=`<div class="lp-scores"><span class="lp-rec-title">📈 评分</span>`;
+  h+=`<span class="lp-chip ${comp.score>=70?'good':comp.score>=40?'warn':'bad'}">构图${comp.score}</span>`;
+  h+=`<span class="lp-chip ${exp.score>=70?'good':exp.score>=40?'warn':'bad'}">曝光${exp.score}</span>`;
+  h+=`<span class="lp-chip ${poseQ.score>=70?'good':poseQ.score>=40?'warn':'bad'}">姿态${poseQ.score}</span>`;
+  h+=`</div>`;
+  $('#live-params').innerHTML=h;
+  $('#live-params').classList.add('show');
+}
+
 // ════════════════ 美学预设 (普利策风格: 参数增量·场景调制) ════════════════
 const AES={
   longerLegs:{compX:.03,compY:-.04,zoom:1,contrastBias:.05,satBias:.05,warmthBias:200,vignetteBias:.05,letterbox:0,exposureBias:.15,tip:'蹲下仰拍·脚贴底边·低角度',badge:'🦵'},
@@ -686,8 +829,10 @@ function updateUI(comp,exp,poseQ,feat,aesP,light){
   else if(feat.avgLuminance<.15){sceneIcon='🌙';sceneLabel='暗光'}
   else if(feat.greenDominance>1.25){sceneIcon='🌿';sceneLabel='户外'}
   else if(feat.skinRatio>.06){sceneIcon='👤';sceneLabel='人像'}
-  $('#scene-pill .icon').textContent=sceneIcon;
-  $('#scene-pill .label').textContent=sceneLabel+(aesP?' '+aesP.badge:'');
+  // 照片类型合并
+  const pt=S.photoType||{icon:'📷',label:'分析中...',confidence:0};
+  $('#scene-pill .icon').textContent=pt.icon;
+  $('#scene-pill .label').textContent=`${pt.label} ${sceneLabel!=='标准'?'· '+sceneLabel:''}${aesP?' '+aesP.badge:''}`;
   // 黄金时刻指示器
   checkGoldenHour();
   // 光线罗盘
@@ -708,7 +853,9 @@ function updateUI(comp,exp,poseQ,feat,aesP,light){
   $('#score-chips').innerHTML=chips.map(c=>{const cl=c.s>=70?'good':c.s>=40?'warn':'bad';return`<span class="chip ${cl}">${c.l} ${c.s}</span>`}).join('');
   // 景别
   const tl={face:'👤面部特写',bust:'🧍胸像',halfBody:'🧍半身照',fullBody:'🧍全身照',environ:'🌍环境'};
-  $('#shot-badge').textContent=tl[S.shotType]||'';
+  $('#shot-badge').textContent=`${pt.confidence>.3?pt.label:''} · ${tl[S.shotType]||''}`;
+  // 实时参数面板
+  showLiveParams(feat,light,pt,comp,exp,poseQ);
 }
 
 function updateSceneTip(){
@@ -784,13 +931,22 @@ function matchVoice(t){
 // ─── 模式 ───
 function toggleMode(){const m=['fullAuto','semiAuto','manual'],lb={fullAuto:'🤖全自动',semiAuto:'🎯半自动',manual:'👋手动'};S.mode=m[(m.indexOf(S.mode)+1)%3];$('#btn-mode').textContent=lb[S.mode];toast(S.mode==='fullAuto'?'全自动·构图曝光滤镜全自动':S.mode==='semiAuto'?'半自动·你控构图·其余自动':'手动·全部自己调')}
 
-// ─── 拍照 ───
+// ─── 拍照 (智能裁剪) ───
 function takePhoto(){
   const v=$('#video');if(!v.videoWidth)return toast('相机未就绪');
-  const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;
+  // 获取当前分析结果
+  const feat=S.features,pose=S.pose,comp={targetX:S.params.subjectX,targetY:S.params.subjectY,bodyRatio:S.shotTypeRatio};
+  const st={type:S.shotType,ratio:S.shotTypeRatio};
+  const pt=S.photoType||classifyPhotoType(feat||{avgLuminance:.5},pose,st);
+  // 智能裁剪
+  const crop=smartCrop(v,pose,comp,pt,st);
+  const c=document.createElement('canvas');c.width=crop.w;c.height=crop.h;
   const ctx=c.getContext('2d');const f=v.style.filter;
-  if(f&&f!=='none')ctx.filter=f;ctx.drawImage(v,0,0);
-  c.toBlob(b=>{const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=`photowing_${Date.now()}.jpg`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);toast('📸 照片已保存');navigator.vibrate?.([30,50,30])},'image/jpeg',.92);
+  if(f&&f!=='none')ctx.filter=f;
+  // 裁剪绘制
+  ctx.drawImage(v,crop.x,crop.y,crop.w,crop.h,0,0,crop.w,crop.h);
+  const ratioLabel={1.777:'16:9',1.333:'4:3',0.75:'3:4',1:'1:1',0.8:'4:5'};
+  c.toBlob(b=>{const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=`photowing_${pt.type}_${Date.now()}.jpg`;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);toast(`📸 ${pt.label} · 智能裁剪 ${ratioLabel[crop.ratio.toFixed(3)]||crop.ratio.toFixed(2)}`);navigator.vibrate?.([30,50,30])},'image/jpeg',.92);
 }
 
 // ─── 变焦 ───
@@ -833,6 +989,8 @@ async function loop(ts){
   const exp=evalExposure(feat,aep);
   const poseQ=evalPose(pose);const st=detectShotType(pose);
   S.shotType=st.type;S.shotTypeRatio=st.ratio;
+  // 照片类型分类
+  const pt=classifyPhotoType(feat,pose,st);S.photoType=pt;
   // 动态滤镜
   if(aep&&feat){v.style.filter=buildFilter(aep,feat);v.style.transition='filter .4s ease'}
   const vs=aep?(aep.vignetteBias||0):0;updateVignette(vs,feat);
@@ -863,12 +1021,14 @@ async function init(){
   // 抽屉
   const drawer=$('#drawer');
   $('#drawer-handle').addEventListener('click',()=>drawer.classList.toggle('collapsed'));
-  // iOS: 必须用户点击才能请求相机权限
-  $('#start-overlay').addEventListener('pointerdown',async (e)=>{
+  // iOS: 必须用户手势同步触发getUserMedia，await会打断手势上下文
+  $('#start-overlay').addEventListener('pointerdown',(e)=>{
     e.preventDefault();
     $('#start-overlay').classList.add('hide');
-    try{await loadPose()}catch(e){console.warn('MediaPipe failed',e)}
+    // CRITICAL: getUserMedia必须在pointerdown同步调用链中触发
     startCamera();
+    // MediaPipe异步加载不打断手势
+    loadPose().catch(e=>console.warn('MediaPipe failed',e));
     setTimeout(()=>drawer.classList.remove('collapsed'),1500);
   },{once:true});
 }
